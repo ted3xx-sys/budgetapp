@@ -57,15 +57,30 @@ ALTER TABLE bills    ENABLE ROW LEVEL SECURITY;
 -- Drop policies if they already exist (so this script is re-runnable)
 DROP POLICY IF EXISTS "personal_app_settings" ON settings;
 DROP POLICY IF EXISTS "personal_app_bills"    ON bills;
+DROP POLICY IF EXISTS "household_settings"    ON settings;
+DROP POLICY IF EXISTS "household_bills"       ON bills;
 
--- Only allow reads/writes for the single hard-coded user ID.
--- Even with the anon key exposed, no other data can be touched.
-CREATE POLICY "personal_app_settings" ON settings
-  FOR ALL TO anon
-  USING  (user_id = '00000000-0000-0000-0000-000000000000')
-  WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');
+-- Household allowlist: only these two authenticated users can read/write.
+-- The anon key alone is no longer sufficient — a valid signed-in session
+-- (Supabase Auth) is required, and that session's user must be one of ours.
+CREATE POLICY "household_settings" ON settings
+  FOR ALL TO authenticated
+  USING (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ))
+  WITH CHECK (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ));
 
-CREATE POLICY "personal_app_bills" ON bills
-  FOR ALL TO anon
-  USING  (user_id = '00000000-0000-0000-0000-000000000000')
-  WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');
+CREATE POLICY "household_bills" ON bills
+  FOR ALL TO authenticated
+  USING (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ))
+  WITH CHECK (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ));
