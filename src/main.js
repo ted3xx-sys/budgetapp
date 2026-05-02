@@ -3,6 +3,35 @@ import { supabase } from './supabaseClient.js';
 
 const USER_ID = '00000000-0000-0000-0000-000000000000';
 
+// ── PIN lock ─────────────────────────────────────────────────
+(function () {
+  const PIN = '258654';
+  const lockEl = document.getElementById('lock-screen');
+  const input  = document.getElementById('lock-input');
+  const errEl  = document.getElementById('lock-error');
+
+  if (sessionStorage.getItem('unlocked') === '1') {
+    lockEl.style.display = 'none';
+    return;
+  }
+
+  lockEl.style.display = 'flex';
+  document.querySelector('.app').style.visibility = 'hidden';
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (input.value === PIN) {
+      sessionStorage.setItem('unlocked', '1');
+      lockEl.style.display = 'none';
+      document.querySelector('.app').style.visibility = '';
+    } else {
+      errEl.textContent = 'Incorrect PIN';
+      input.value = '';
+      setTimeout(() => { errEl.textContent = ''; }, 2000);
+    }
+  });
+})();
+
 const DEFAULTS = {
   balance: 0,
   miscIncome: 0,
