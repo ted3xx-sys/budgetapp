@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# Local env — NEVER commit this; add secrets to Netlify env vars instead
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.log
+.gemini/

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Household Budget</title>
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <meta name="theme-color" content="#060810">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div id="boot-error" class="boot-error"></div>
+
+<div class="app">
+  <header class="header">
+    <div class="header-top">
+      <div class="logo">Budget</div>
+    </div>
+    <nav class="nav">
+      <button type="button" class="nav-btn is-active" data-view="dashboard">Dashboard</button>
+      <button type="button" class="nav-btn" data-view="bills">Bills</button>
+      <button type="button" class="nav-btn" data-view="schedule">Pay schedule</button>
+      <button type="button" class="nav-btn" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ═══ DASHBOARD ══════════════════════════════════ -->
+    <section id="view-dashboard" class="view is-active">
+
+      <div class="hero-grid">
+        <div class="hero-card">
+          <div class="hero-label">Amount in bank</div>
+          <div class="bal-wrap">
+            <span class="bal-prefix">$</span>
+            <input id="input-balance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" />
+          </div>
+          <div class="sub-row">
+            <div>
+              <div class="sub-lbl">Misc income</div>
+              <input id="input-misc-income" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
+            </div>
+            <div>
+              <div class="sub-lbl">Misc expense</div>
+              <input id="input-misc-expense" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
+            </div>
+            <div>
+              <div class="sub-lbl">Groceries</div>
+              <input id="input-groceries" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
+            </div>
+            <div>
+              <div class="sub-lbl">Fuel</div>
+              <input id="input-fuel" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-card" id="hero-bills-card">
+          <div class="hero-label">Bills left this half</div>
+          <div class="hero-value" id="hero-bills-left">—</div>
+          <div class="hero-sub" id="hero-bills-sub"></div>
+        </div>
+
+        <div class="hero-card" id="hero-safe-card">
+          <div class="hero-label">Safe to spend</div>
+          <div class="hero-value" id="hero-safe">—</div>
+          <div class="hero-sub" id="hero-safe-sub"></div>
+        </div>
+
+        <div class="hero-card" id="hero-income-card">
+          <div class="hero-label">Paychecks pending</div>
+          <div class="hero-value" id="hero-income-pending">—</div>
+          <div class="hero-sub" id="hero-income-sub"></div>
+        </div>
+      </div>
+
+      <div class="period-bar">
+        <div>
+          <div class="p-lbl" id="cycle-label">Current half</div>
+          <div class="p-val" id="cycle-range">—</div>
+        </div>
+        <div>
+          <div class="p-lbl">Income this period</div>
+          <div class="p-val" id="period-income">—</div>
+        </div>
+        <div>
+          <div class="p-lbl">Bills this period</div>
+          <div class="p-val" id="period-bills-total">—</div>
+        </div>
+      </div>
+
+      <div class="cashflow-grid">
+      <div class="card">
+        <div class="card-title" id="flow-title">Running cashflow — this half</div>
+        <div class="flow-wrap">
+          <table class="flow-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th style="text-align:right">Amount</th>
+                <th style="text-align:right">Running total</th>
+              </tr>
+            </thead>
+            <tbody id="flow-tbody"></tbody>
+          </table>
+        </div>
+        <p class="flow-note">
+          Income adds, bills subtract — sorted by date. Past items are dimmed. <strong>Tap a bill amount</strong> to adjust for this period. <strong>Check the box</strong> to mark a bill as paid. <strong>Check income</strong> to mark a paycheck as already in your bank balance. <strong>Safe to spend</strong> = bank balance + pending paychecks − unpaid bills.
+        </p>
+        <div class="quick-add-wrap">
+          <button type="button" class="btn ghost qa-toggle" data-target="qa-form-cur" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
+          <div class="quick-add-form" id="qa-form-cur" style="display:none">
+            <input type="text"   class="qa-inp name" id="qa-name-cur" placeholder="Bill name" />
+            <input type="number" class="qa-inp amt"  id="qa-amt-cur"  placeholder="0.00" min="0" step="0.01" />
+            <input type="date"   class="qa-inp dat"  id="qa-date-cur" />
+            <button type="button" class="btn qa-submit" data-half="cur">Add</button>
+            <button type="button" class="btn ghost qa-cancel" data-target="qa-form-cur">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Look-ahead: next half -->
+      <div class="card" id="lookahead-card">
+        <div class="card-title" id="lookahead-title">Look-ahead — next half</div>
+        <div class="flow-wrap">
+          <table class="flow-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th style="text-align:right">Amount</th>
+                <th style="text-align:right">Running total</th>
+              </tr>
+            </thead>
+            <tbody id="lookahead-tbody"></tbody>
+          </table>
+        </div>
+        <p class="flow-note">
+          Projected cashflow for next half, starting from end-of-half balance. Add one-time bills that don't recur.
+        </p>
+        <div class="quick-add-wrap">
+          <button type="button" class="btn ghost qa-toggle" data-target="qa-form-nxt" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
+          <div class="quick-add-form" id="qa-form-nxt" style="display:none">
+            <input type="text"   class="qa-inp name" id="qa-name-nxt" placeholder="Bill name" />
+            <input type="number" class="qa-inp amt"  id="qa-amt-nxt"  placeholder="0.00" min="0" step="0.01" />
+            <input type="date"   class="qa-inp dat"  id="qa-date-nxt" />
+            <button type="button" class="btn qa-submit" data-half="nxt">Add</button>
+            <button type="button" class="btn ghost qa-cancel" data-target="qa-form-nxt">✕</button>
+          </div>
+        </div>
+      </div>
+      </div><!-- end .cashflow-grid -->
+
+    </section>
+
+    <!-- ═══ BILLS ══════════════════════════════════════ -->
+    <section id="view-bills" class="view">
+      <div class="card">
+        <div class="card-title">At a glance</div>
+        <div class="cat-totals-grid" id="cat-totals"></div>
+      </div>
+      <div class="card mt">
+        <div class="card-title">Bills</div>
+        <p class="hint" style="margin-bottom:1rem">
+          Turn <strong>Recurring</strong> on to pick a fixed day-of-month — the app auto-calculates the next due date every month.
+          Leave it off to set a specific one-time date.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="min-width:8rem">Name</th>
+                <th style="min-width:5rem">Amount ($)</th>
+                <th class="center" style="width:5rem">Recurring</th>
+                <th style="min-width:7rem">Due / Day</th>
+                <th class="center" style="width:5rem">Autodraft</th>
+                <th style="min-width:8rem">Category</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="bills-tbody"></tbody>
+          </table>
+        </div>
+        <button type="button" id="btn-add-bill" class="btn ghost">+ Add bill</button>
+      </div>
+
+      <div class="card totals mt">
+        <div class="card-title">Monthly totals</div>
+        <dl>
+          <div class="totals-row">
+            <dt>Recurring monthly bills</dt>
+            <dd id="total-recurring">—</dd>
+          </div>
+          <div class="totals-row">
+            <dt>One-time / upcoming bills</dt>
+            <dd id="total-onetime">—</dd>
+          </div>
+          <div class="totals-row grand">
+            <dt>Total committed outflow</dt>
+            <dd id="total-all">—</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ═══ SCHEDULE ═══════════════════════════════════ -->
+    <section id="view-schedule" class="view">
+      <div class="card">
+        <div class="card-title">Pay schedule — next 5 weeks</div>
+        <p class="hint" style="margin-bottom:1rem">
+          Salary: <strong id="sched-wife-line"></strong>.
+          Your Thursdays alternate <strong>Payday</strong> ($1,000 default) and <strong>Instapay</strong> ($700 default).
+          The next upcoming Payday and Instapay can be overridden based on what you actually worked. Everything else uses defaults for forecasting.
+        </p>
+        <ul id="list-schedule" class="event-list"></ul>
+      </div>
+    </section>
+
+    <!-- ═══ SETTINGS ═══════════════════════════════════ -->
+    <section id="view-settings" class="view">
+      <div class="card">
+        <div class="card-title">Income defaults</div>
+        <div class="settings-grid">
+          <label>Wife weekly (Tuesdays)<input id="set-wife" type="number" min="0" step="0.01" /></label>
+          <label>Your payday default (Thu)<input id="set-payday" type="number" min="0" step="0.01" /></label>
+          <label>Your instapay default (Thu)<input id="set-instapay" type="number" min="0" step="0.01" /></label>
+          <div></div>
+          <label class="span-2">Anchor Thursday — first <code>payday</code> in the alternating pattern
+            <input id="set-anchor-thu" type="date" />
+          </label>
+        </div>
+      </div>
+      <div class="card mt">
+        <div class="card-title">Data</div>
+        <p class="hint" style="margin-bottom:0.9rem">Everything stays in your browser. Export to back up; import to restore.</p>
+        <div class="btn-row">
+          <button type="button" id="btn-export" class="btn">Export JSON</button>
+          <label class="btn ghost file-label">Import JSON<input id="input-import" type="file" accept="application/json" hidden /></label>
+        </div>
+      </div>
+    </section>
+
+  </main>
+  <footer class="footer" style="margin-top:2rem">Data synced to Supabase — your browser, your data.</footer>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
