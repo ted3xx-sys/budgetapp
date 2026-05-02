@@ -18,8 +18,7 @@ const USER_ID = '00000000-0000-0000-0000-000000000000';
   lockEl.style.display = 'flex';
   document.querySelector('.app').style.visibility = 'hidden';
 
-  input.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
+  function tryUnlock() {
     if (input.value === PIN) {
       sessionStorage.setItem('unlocked', '1');
       lockEl.style.display = 'none';
@@ -29,7 +28,10 @@ const USER_ID = '00000000-0000-0000-0000-000000000000';
       input.value = '';
       setTimeout(() => { errEl.textContent = ''; }, 2000);
     }
-  });
+  }
+
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+  document.getElementById('lock-submit').addEventListener('click', tryUnlock);
 })();
 
 const DEFAULTS = {
