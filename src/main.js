@@ -1,38 +1,58 @@
 import './style.css';
 import { supabase } from './supabaseClient.js';
 
+// Tag for the shared household row. Security is enforced by Supabase RLS
+// (auth.uid() allowlist), not by this constant.
 const USER_ID = '00000000-0000-0000-0000-000000000000';
 
-// ── PIN lock ─────────────────────────────────────────────────
-(function () {
-  const PIN = '258654';
-  const lockEl = document.getElementById('lock-screen');
-  const input  = document.getElementById('lock-input');
-  const errEl  = document.getElementById('lock-error');
+// ── Auth gate ────────────────────────────────────────────────
+const authScreen = document.getElementById('auth-screen');
+const appEl      = document.querySelector('.app');
 
-  if (sessionStorage.getItem('unlocked') === '1') {
-    lockEl.style.display = 'none';
-    return;
-  }
+function showAuth() {
+  authScreen.style.display = 'flex';
+  appEl.style.visibility   = 'hidden';
+}
+function hideAuth() {
+  authScreen.style.display = 'none';
+  appEl.style.visibility   = '';
+}
 
-  lockEl.style.display = 'flex';
-  document.querySelector('.app').style.visibility = 'hidden';
+async function waitForSession() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) { hideAuth(); return session; }
 
-  function tryUnlock() {
-    if (input.value === PIN) {
-      sessionStorage.setItem('unlocked', '1');
-      lockEl.style.display = 'none';
-      document.querySelector('.app').style.visibility = '';
-    } else {
-      errEl.textContent = 'Incorrect PIN';
-      input.value = '';
-      setTimeout(() => { errEl.textContent = ''; }, 2000);
-    }
-  }
+  showAuth();
+  const form       = document.getElementById('auth-form');
+  const emailInput = document.getElementById('auth-email');
+  const pwInput    = document.getElementById('auth-password');
+  const errEl      = document.getElementById('auth-error');
+  const submitBtn  = document.getElementById('auth-submit');
+  emailInput.focus();
 
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
-  document.getElementById('lock-submit').addEventListener('click', tryUnlock);
-})();
+  return new Promise((resolve) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in…';
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailInput.value.trim(),
+        password: pwInput.value,
+      });
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Sign in';
+      if (error) {
+        errEl.textContent = error.message || 'Sign-in failed';
+        pwInput.select();
+        return;
+      }
+      pwInput.value = '';
+      hideAuth();
+      resolve(data.session);
+    });
+  });
+}
 
 const DEFAULTS = {
   balance: 0,
@@ -58,6 +78,8 @@ const DEFAULTS = {
   'use strict';
 
   function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+  const session = await waitForSession();
 
   let S = await loadState();
 
@@ -854,6 +876,19 @@ const DEFAULTS = {
     a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));
     a.download=`household-budget-${toIso(new Date())}.json`;
     a.click(); URL.revokeObjectURL(a.href);
+  });
+
+  // Account: show email, sign out
+  const acctEmail = $('#account-email');
+  if (acctEmail) acctEmail.textContent = session?.user?.email ? `Signed in as ${session.user.email}` : '—';
+  $('#btn-signout')?.addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  });
+
+  // If the session is invalidated elsewhere (e.g. token expiry), reload to re-auth
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') location.reload();
   });
 
   $('#input-import').addEventListener('change',ev=>{

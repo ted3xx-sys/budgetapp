@@ -17,17 +17,22 @@
 </head>
 <body>
 
-<div id="lock-screen" style="display:none;position:fixed;inset:0;background:#060810;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem">
+<div id="auth-screen" style="display:none;position:fixed;inset:0;background:#060810;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;padding:1.5rem">
   <div style="font-family:'JetBrains Mono',monospace;font-size:1.4rem;letter-spacing:0.15em;color:#e2e8f0">BUDGET</div>
-  <input id="lock-input" type="password" inputmode="numeric" placeholder="Enter PIN" autocomplete="off"
-    style="background:#0f1629;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:1.1rem;padding:0.75rem 1.25rem;text-align:center;width:200px;outline:none" />
-  <button id="lock-submit" style="background:#3b82f6;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:1rem;padding:0.75rem 2rem;width:200px">Unlock</button>
-  <div id="lock-error" style="color:#fc8181;font-size:0.85rem;min-height:1.2em"></div>
+  <form id="auth-form" style="display:flex;flex-direction:column;gap:0.75rem;width:260px">
+    <input id="auth-email" type="email" placeholder="Email" autocomplete="username" required
+      style="background:#0f1629;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:1rem;padding:0.7rem 1rem;outline:none" />
+    <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required
+      style="background:#0f1629;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:1rem;padding:0.7rem 1rem;outline:none" />
+    <button id="auth-submit" type="submit"
+      style="background:#3b82f6;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:1rem;padding:0.75rem 1.25rem;margin-top:0.25rem">Sign in</button>
+    <div id="auth-error" style="color:#fc8181;font-size:0.85rem;min-height:1.2em;text-align:center"></div>
+  </form>
 </div>
 
 <div id="boot-error" class="boot-error"></div>
 
-<div class="app">
+<div class="app" style="visibility:hidden">
   <header class="header">
     <div class="header-top">
       <div class="logo">Budget</div>
@@ -252,6 +257,13 @@
         <div class="btn-row">
           <button type="button" id="btn-export" class="btn">Export JSON</button>
           <label class="btn ghost file-label">Import JSON<input id="input-import" type="file" accept="application/json" hidden /></label>
+        </div>
+      </div>
+      <div class="card mt">
+        <div class="card-title">Account</div>
+        <p class="hint" style="margin-bottom:0.9rem" id="account-email">—</p>
+        <div class="btn-row">
+          <button type="button" id="btn-signout" class="btn ghost">Sign out</button>
         </div>
       </div>
     </section>
