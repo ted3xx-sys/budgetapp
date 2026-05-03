@@ -700,6 +700,7 @@ const DEFAULTS = {
           <div class="meal-day">${dayLabels[i]}</div>
           <div class="meal-date">${d.getMonth()+1}/${d.getDate()}</div>
           <textarea class="meal-name-input" data-date="${iso}" rows="1" placeholder="—"
+            enterkeyhint="enter" autocorrect="off" autocapitalize="sentences"
             spellcheck="false">${esc(meal?.name || '')}</textarea>
         </div>
       `);
