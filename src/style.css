@@ -53,11 +53,11 @@ body {
 }
 .logo {
   font-family: var(--sans);
-  font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted-hi);
+  color: var(--text);
 }
 .nav { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; }
 
@@ -71,16 +71,16 @@ body {
 }
 .sub-nav-btn {
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 500;
-  padding: 0.32rem 0.85rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0.42rem 1rem;
   border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--muted);
+  color: var(--muted-hi);
   cursor: pointer;
   transition: all .18s;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 .sub-nav-btn:hover { color: var(--text); background: var(--surface); }
 .sub-nav-btn.is-active {
@@ -93,16 +93,16 @@ body {
 .sub-view.is-active { display: block; }
 .nav-btn {
   font: inherit;
-  font-size: 0.82rem;
-  font-weight: 500;
-  padding: 0.38rem 0.9rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.5rem 1.1rem;
   border-radius: 20px;
   border: 1px solid var(--border);
   background: transparent;
-  color: var(--muted);
+  color: var(--muted-hi);
   cursor: pointer;
   transition: all .18s;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 .nav-btn:hover { border-color: var(--border-hi); color: var(--text); background: var(--surface); }
 .nav-btn.is-active {
@@ -135,11 +135,11 @@ body {
 }
 .mt { margin-top: 1rem; }
 .card-title {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text);
   margin-bottom: 1.1rem;
 }
 /* Two-line variant: top span = main heading, .card-subtitle = scope/range below */
@@ -192,11 +192,11 @@ body {
 }
 
 .hero-label {
-  font-size: 0.67rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text);
   margin-bottom: 0.6rem;
 }
 .hero-label-sub {

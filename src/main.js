@@ -666,8 +666,7 @@ const DEFAULTS = {
     document.getElementById('snapshot-now-card').className =
       'hero-card' + (now.running <= 0 ? ' danger' : now.running < 200 ? ' warn' : ' safe');
 
-    document.getElementById('snapshot-next-label').innerHTML =
-      `<span>Available</span><span class="hero-label-sub">▸ 7 Days Out</span>`;
+    document.getElementById('snapshot-next-label').textContent = '📈 Available (7 Days Out)';
     document.getElementById('snapshot-next').textContent = money(next.running);
 
     const dippedNegative = next.minRunning < 0;
