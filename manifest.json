@@ -1,6 +1,6 @@
 {
-  "name": "Budget",
-  "short_name": "Budget",
+  "name": "Gloodt Home Planner",
+  "short_name": "Gloodt",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#060810",
