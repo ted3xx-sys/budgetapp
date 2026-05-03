@@ -1453,8 +1453,9 @@ const DEFAULTS = {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { type: 'module' }).catch(()=>{});
+    navigator.serviceWorker.register('/budgetapp/sw.js', { type: 'module' }).catch(()=>{});
   }
+
 
 
 })();
