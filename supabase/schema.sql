@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS bills (
 );
 
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS due_date TEXT;
+-- Recurrence cadence: 'monthly' uses due_day as day-of-month (1-31);
+--                    'weekly'  uses due_day as day-of-week  (0=Sun..6=Sat).
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS recur_kind TEXT NOT NULL DEFAULT 'monthly';
 
 -- ── Row Level Security ───────────────────────────────────────
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;

@@ -128,7 +128,8 @@ const DEFAULTS = {
           name:      b.name || '',
           amount:    b.amount ?? '',
           recurring: !!b.is_recurring,
-          recurDay:  b.due_day || 1,
+          recurKind: b.recur_kind || 'monthly', // 'monthly' or 'weekly'
+          recurDay:  b.due_day || 1,            // DOM (1-31) or DOW (0-6)
           dueDate:   b.due_date || '',
           autodraft: !!b.is_autodraft,
           category:  b.category || '',
@@ -188,7 +189,8 @@ const DEFAULTS = {
             name:         bill.name || '',
             amount:       Number(bill.amount) || 0,
             is_recurring: !!bill.recurring,
-            due_day:      bill.recurDay || 1,
+            recur_kind:   bill.recurKind || 'monthly',
+            due_day:      Number(bill.recurDay ?? 1),
             due_date:     bill.dueDate || null,
             category:     bill.category || '',
             is_autodraft: !!bill.autodraft,
@@ -276,9 +278,19 @@ const DEFAULTS = {
     const results = [];
     const rs = sod(rangeStart), re = sod(rangeEnd);
     bills.forEach(b => {
-      if (b.recurring) {
+      if (b.recurring && b.recurKind === 'weekly') {
+        // Weekly: emit one instance per matching DOW in [rs, re]
+        const targetDow = Math.max(0, Math.min(6, Number(b.recurDay) || 0));
+        // Find first occurrence >= rs
+        let cursor = new Date(rs);
+        while (cursor.getDay() !== targetDow) cursor = addDays(cursor, 1);
+        while (cursor <= re) {
+          results.push({ bill: b, date: new Date(cursor) });
+          cursor = addDays(cursor, 7);
+        }
+      } else if (b.recurring) {
+        // Monthly: existing logic — check months at the range boundaries
         const dom = b.recurDay || 1;
-        // Check each month the range touches
         const months = new Set();
         months.add(`${rs.getFullYear()}-${rs.getMonth()}`);
         months.add(`${re.getFullYear()}-${re.getMonth()}`);
@@ -359,6 +371,33 @@ const DEFAULTS = {
     let o='<option value="">—</option>';
     for(let i=1;i<=31;i++) o+=`<option value="${i}"${selected==i?' selected':''}>${i}${ordSuffix(i)}</option>`;
     return `<select data-f="recurDay">${o}</select>`;
+  }
+
+  function dowSelectHtml(selected) {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const safe = (Number(selected) >= 0 && Number(selected) <= 6) ? Number(selected) : 1;
+    let o = '';
+    for (let i = 0; i < 7; i++) {
+      o += `<option value="${i}"${safe===i?' selected':''}>${days[i]}</option>`;
+    }
+    return `<select data-f="recurDay">${o}</select>`;
+  }
+
+  function recurrenceCellHtml(bill) {
+    if (!bill.recurring) {
+      return `<input type="date" data-f="dueDate" value="${esc(bill.dueDate||'')}" />`;
+    }
+    const kind = bill.recurKind || 'monthly';
+    const dayPicker = kind === 'weekly'
+      ? dowSelectHtml(bill.recurDay)
+      : daySelectHtml(bill.recurDay || 1);
+    return `
+      <select data-f="recurKind" style="margin-bottom:0.25rem;display:block;width:100%">
+        <option value="monthly" ${kind==='monthly'?'selected':''}>Monthly</option>
+        <option value="weekly"  ${kind==='weekly' ?'selected':''}>Weekly</option>
+      </select>
+      ${dayPicker}
+    `;
   }
 
   const CATS = [
@@ -817,14 +856,18 @@ const DEFAULTS = {
   function renderBillsTable() {
     const tb=$('#bills-tbody');
     tb.innerHTML='';
-    let rTotal=0, oTotal=0;
+    let rMonthly=0, rWeekly=0, oTotal=0;
 
-    // Sort: recurring bills by recurDay (1st first), then one-time by dueDate
+    // Sort: weekly recurring first (by DOW), then monthly recurring (by DOM),
+    // then one-time bills (by dueDate).
+    const recurRank = b => {
+      if (!b.recurring) return 2;
+      return (b.recurKind === 'weekly') ? 0 : 1;
+    };
     const sorted = [...S.bills].sort((a,b)=>{
-      const aR=!!a.recurring, bR=!!b.recurring;
-      if(aR && bR) return (a.recurDay||1)-(b.recurDay||1);
-      if(aR && !bR) return -1;
-      if(!aR && bR) return 1;
+      const ra = recurRank(a), rb = recurRank(b);
+      if (ra !== rb) return ra - rb;
+      if (ra === 0 || ra === 1) return (a.recurDay||0) - (b.recurDay||0);
       return (a.dueDate||'').localeCompare(b.dueDate||'');
     });
 
@@ -832,28 +875,28 @@ const DEFAULTS = {
       const isR=!!bill.recurring;
       const isAD=!!bill.autodraft;
       const amt=Number(bill.amount)||0;
-      if(isR) rTotal+=amt; else oTotal+=amt;
+      if (isR && bill.recurKind === 'weekly') rWeekly += amt;
+      else if (isR)                           rMonthly += amt;
+      else                                    oTotal += amt;
 
       const tr=document.createElement('tr');
       tr.dataset.id=bill.id;
-      const dueCell=isR
-        ? daySelectHtml(bill.recurDay||1)
-        : `<input type="date" data-f="dueDate" value="${esc(bill.dueDate||'')}" />`;
-
       tr.innerHTML=`
         <td><input type="text"   data-f="name"   value="${esc(bill.name)}" placeholder="Bill name" /></td>
         <td><input type="number" data-f="amount" min="0" step="0.01" value="${bill.amount??''}" /></td>
         <td class="toggle-cell"><input type="checkbox" class="toggle" data-f="recurring" ${isR?'checked':''} /></td>
-        <td>${dueCell}</td>
+        <td>${recurrenceCellHtml(bill)}</td>
         <td class="toggle-cell"><input type="checkbox" class="toggle" data-f="autodraft" ${isAD?'checked':''} /></td>
         <td>${categorySelectHtml(bill.category||'')}</td>
         <td><button type="button" class="btn-del" data-del>Remove</button></td>`;
       tb.appendChild(tr);
     });
 
-    $('#total-recurring').textContent=money(rTotal);
-    $('#total-onetime').textContent=money(oTotal);
-    $('#total-all').textContent=money(rTotal+oTotal);
+    // Note: weekly bills shown as their per-week amount (e.g. groceries $250).
+    // Monthly equivalent ≈ amount × 4.33; we keep the totals literal for clarity.
+    $('#total-recurring').textContent = money(rMonthly + rWeekly);
+    $('#total-onetime').textContent   = money(oTotal);
+    $('#total-all').textContent       = money(rMonthly + rWeekly + oTotal);
     renderCategoryTotals();
   }
 
@@ -1146,7 +1189,7 @@ const DEFAULTS = {
       if (!name || !amt || !date) { alert('Fill in name, amount, and date.'); return; }
       S.bills.push({
         id: `bill-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        name, amount: amt, recurring: false, recurDay: 1, dueDate: date,
+        name, amount: amt, recurring: false, recurKind: 'monthly', recurDay: 1, dueDate: date,
         autodraft: false, category: '',
       });
       save();
@@ -1175,7 +1218,7 @@ const DEFAULTS = {
   })();
 
   $('#btn-add-bill').addEventListener('click',()=>{
-    S.bills.push({id:`bill-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name:'',amount:'',recurring:false,recurDay:1,dueDate:'',autodraft:false,category:''});
+    S.bills.push({id:`bill-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name:'',amount:'',recurring:false,recurKind:'monthly',recurDay:1,dueDate:'',autodraft:false,category:''});
     save(); renderBillsTable(); renderDashboard();
   });
 
@@ -1187,10 +1230,24 @@ const DEFAULTS = {
     if(f==='name')      bill.name=el.value;
     if(f==='amount')    bill.amount=el.value;
     if(f==='dueDate')   bill.dueDate=el.value;
-    if(f==='recurDay')  bill.recurDay=Number(el.value)||1;
+    if(f==='recurDay')  bill.recurDay=Number(el.value)||0;
     if(f==='category')  { bill.category=el.value; save(); renderCategoryTotals(); return; }
     if(f==='autodraft') { bill.autodraft=el.checked; save(); return; }
-    if(f==='recurring') { bill.recurring=el.checked; if(el.checked) bill.dueDate=''; save(); renderBillsTable(); renderDashboard(); return; }
+    if(f==='recurring') {
+      bill.recurring=el.checked;
+      if(el.checked) {
+        bill.dueDate='';
+        if (!bill.recurKind) bill.recurKind = 'monthly';
+      }
+      save(); renderBillsTable(); renderDashboard(); return;
+    }
+    if(f==='recurKind') {
+      bill.recurKind = el.value;
+      // Reset day to a sensible default when the cadence changes
+      if (el.value === 'weekly' && (bill.recurDay > 6 || bill.recurDay < 0)) bill.recurDay = 1;
+      if (el.value === 'monthly' && (bill.recurDay < 1 || bill.recurDay > 31)) bill.recurDay = 1;
+      save(); renderBillsTable(); renderDashboard(); return;
+    }
     save(); renderDashboard();
     const rT=S.bills.filter(b=>b.recurring).reduce((s,b)=>s+(Number(b.amount)||0),0);
     const oT=S.bills.filter(b=>!b.recurring).reduce((s,b)=>s+(Number(b.amount)||0),0);
