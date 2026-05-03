@@ -1456,4 +1456,5 @@ const DEFAULTS = {
     navigator.serviceWorker.register('/sw.js', { type: 'module' }).catch(()=>{});
   }
 
+
 })();
