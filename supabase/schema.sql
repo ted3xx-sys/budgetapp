@@ -84,3 +84,50 @@ CREATE POLICY "household_bills" ON bills
     'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
     '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
   ));
+
+-- ── meals (what's for dinner each night) ─────────────────────
+CREATE TABLE IF NOT EXISTS meals (
+  id        TEXT PRIMARY KEY,
+  user_id   TEXT NOT NULL,
+  meal_date DATE NOT NULL,
+  name      TEXT NOT NULL DEFAULT '',
+  notes     TEXT NOT NULL DEFAULT '',
+  UNIQUE (user_id, meal_date)
+);
+
+-- ── events (upcoming things to remember together) ────────────
+CREATE TABLE IF NOT EXISTS events (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  event_date DATE NOT NULL,
+  title      TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE meals  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "household_meals"  ON meals;
+DROP POLICY IF EXISTS "household_events" ON events;
+
+CREATE POLICY "household_meals" ON meals
+  FOR ALL TO authenticated
+  USING (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ))
+  WITH CHECK (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ));
+
+CREATE POLICY "household_events" ON events
+  FOR ALL TO authenticated
+  USING (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ))
+  WITH CHECK (auth.uid() IN (
+    'bbda4531-a756-4ff4-b479-2448c516b254'::uuid,
+    '80e9eb94-5a71-4ff1-8481-60fb69722c5d'::uuid
+  ));
