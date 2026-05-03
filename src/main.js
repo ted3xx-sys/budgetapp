@@ -129,7 +129,7 @@ const DEFAULTS = {
           amount:    b.amount ?? '',
           recurring: !!b.is_recurring,
           recurKind: b.recur_kind || 'monthly', // 'monthly' or 'weekly'
-          recurDay:  b.due_day || 1,            // DOM (1-31) or DOW (0-6)
+          recurDay:  b.due_day ?? 1,            // DOM (1-31) or DOW (0-6); ?? preserves Sunday=0
           dueDate:   b.due_date || '',
           autodraft: !!b.is_autodraft,
           category:  b.category || '',
@@ -409,7 +409,8 @@ const DEFAULTS = {
   const CATS = [
     { key:'utilities',      label:'Utilities' },
     { key:'subscriptions',  label:'Subscriptions' },
-    { key:'transportation', label:'Transportation' },
+    { key:'transportation', label:'Home & Auto' },     // key kept for backwards compat
+    { key:'food_grocery',   label:'Food & Grocery' },
     { key:'credit',         label:'Credit Cards' },
   ];
 
@@ -418,12 +419,23 @@ const DEFAULTS = {
     return `<select data-f="category">${opts.map(([v,l])=>`<option value="${v}"${selected===v?' selected':''}>${l}</option>`).join('')}</select>`;
   }
 
+  // Convert any bill to its monthly-equivalent amount.
+  // Weekly bills × 4.33 (avg weeks/month). Monthly + one-time bills as-is.
+  const WEEKS_PER_MONTH = 52 / 12; // 4.3333...
+  function billMonthlyEquivalent(bill) {
+    const amt = Number(bill.amount) || 0;
+    if (bill.recurring && bill.recurKind === 'weekly') return amt * WEEKS_PER_MONTH;
+    return amt;
+  }
+
   function renderCategoryTotals() {
     const el = $('#cat-totals'); if(!el) return;
     el.innerHTML = CATS.map(c => {
-      const total = S.bills.filter(b=>b.category===c.key).reduce((s,b)=>s+(Number(b.amount)||0),0);
+      const total = S.bills
+        .filter(b => b.category === c.key)
+        .reduce((s,b) => s + billMonthlyEquivalent(b), 0);
       return `<div class="cat-total"><div class="cat-lbl">${c.label}</div><div class="cat-amt">${money(total)}</div></div>`;
-    }).join('') + `<div class="cat-total" style="border-color:rgba(91,141,239,.2)"><div class="cat-lbl" style="color:var(--accent)">All Bills</div><div class="cat-amt" style="color:var(--accent)">${money(S.bills.reduce((s,b)=>s+(Number(b.amount)||0),0))}</div></div>`;
+    }).join('') + `<div class="cat-total" style="border-color:rgba(91,141,239,.2)"><div class="cat-lbl" style="color:var(--accent)">All Bills</div><div class="cat-amt" style="color:var(--accent)">${money(S.bills.reduce((s,b) => s + billMonthlyEquivalent(b), 0))}</div></div>`;
   }
 
   // Reusable: build a cashflow table into a tbody, returns final running balance
@@ -881,7 +893,8 @@ const DEFAULTS = {
       const isR=!!bill.recurring;
       const isAD=!!bill.autodraft;
       const amt=Number(bill.amount)||0;
-      if (isR && bill.recurKind === 'weekly') rWeekly += amt;
+      // For monthly-equivalent totals, weekly bills × 4.33
+      if (isR && bill.recurKind === 'weekly') rWeekly += amt * WEEKS_PER_MONTH;
       else if (isR)                           rMonthly += amt;
       else                                    oTotal += amt;
 
@@ -898,11 +911,12 @@ const DEFAULTS = {
       tb.appendChild(tr);
     });
 
-    // Note: weekly bills shown as their per-week amount (e.g. groceries $250).
-    // Monthly equivalent ≈ amount × 4.33; we keep the totals literal for clarity.
-    $('#total-recurring').textContent = money(rMonthly + rWeekly);
-    $('#total-onetime').textContent   = money(oTotal);
-    $('#total-all').textContent       = money(rMonthly + rWeekly + oTotal);
+    // Render the merged Monthly totals card. Weekly bills are already
+    // multiplied by 4.33 in rWeekly above so all totals are monthly-comparable.
+    $('#total-monthly').textContent = money(rMonthly);
+    $('#total-weekly').textContent  = money(rWeekly);
+    $('#total-onetime').textContent = money(oTotal);
+    $('#total-all').textContent     = money(rMonthly + rWeekly + oTotal);
     renderCategoryTotals();
   }
 
@@ -1256,11 +1270,16 @@ const DEFAULTS = {
       save(); renderBillsTable(); renderDashboard(); return;
     }
     save(); renderDashboard();
-    const rT=S.bills.filter(b=>b.recurring).reduce((s,b)=>s+(Number(b.amount)||0),0);
-    const oT=S.bills.filter(b=>!b.recurring).reduce((s,b)=>s+(Number(b.amount)||0),0);
-    $('#total-recurring').textContent=money(rT);
-    $('#total-onetime').textContent=money(oT);
-    $('#total-all').textContent=money(rT+oT);
+    // Recompute monthly totals (weekly bills × 4.33). Updates the merged
+    // Monthly totals card without re-rendering the bills table (preserves focus).
+    const rMonthly = S.bills.filter(b => b.recurring && b.recurKind !== 'weekly').reduce((s,b) => s + (Number(b.amount)||0), 0);
+    const rWeekly  = S.bills.filter(b => b.recurring && b.recurKind === 'weekly').reduce((s,b) => s + (Number(b.amount)||0) * WEEKS_PER_MONTH, 0);
+    const oT       = S.bills.filter(b => !b.recurring).reduce((s,b) => s + (Number(b.amount)||0), 0);
+    $('#total-monthly').textContent = money(rMonthly);
+    $('#total-weekly').textContent  = money(rWeekly);
+    $('#total-onetime').textContent = money(oT);
+    $('#total-all').textContent     = money(rMonthly + rWeekly + oT);
+    renderCategoryTotals();
   }
   $('#bills-tbody').addEventListener('input', handleBills);
   $('#bills-tbody').addEventListener('change',handleBills);

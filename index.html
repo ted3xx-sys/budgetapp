@@ -234,10 +234,6 @@
 
       <!-- ═══ BILLS sub-view ═══════════════════════════ -->
       <div id="sub-bills" class="sub-view">
-      <div class="card">
-        <div class="card-title">At a glance</div>
-        <div class="cat-totals-grid" id="cat-totals"></div>
-      </div>
       <div class="card mt">
         <div class="card-title">Bills</div>
         <p class="hint" style="margin-bottom:1rem">
@@ -265,17 +261,23 @@
 
       <div class="card totals mt">
         <div class="card-title">Monthly totals</div>
-        <dl>
+        <p class="hint" style="margin-bottom:1rem">Weekly bills (e.g. groceries, fuel) are multiplied by 4.33 to estimate their monthly equivalent.</p>
+        <div class="cat-totals-grid" id="cat-totals" style="margin-bottom:1.25rem"></div>
+        <dl style="border-top:1px solid var(--border);padding-top:1rem">
           <div class="totals-row">
-            <dt>Recurring monthly bills</dt>
-            <dd id="total-recurring">—</dd>
+            <dt>Monthly recurring</dt>
+            <dd id="total-monthly">—</dd>
           </div>
           <div class="totals-row">
-            <dt>One-time / upcoming bills</dt>
+            <dt>Weekly recurring (×4.33)</dt>
+            <dd id="total-weekly">—</dd>
+          </div>
+          <div class="totals-row">
+            <dt>One-time / upcoming</dt>
             <dd id="total-onetime">—</dd>
           </div>
           <div class="totals-row grand">
-            <dt>Total committed outflow</dt>
+            <dt>Total monthly outflow</dt>
             <dd id="total-all">—</dd>
           </div>
         </dl>
