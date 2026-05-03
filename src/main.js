@@ -362,6 +362,12 @@ const DEFAULTS = {
     $$('.nav-btn').forEach(b=>b.classList.toggle('is-active',b.dataset.view===name));
   }
 
+  function showSubView(name) {
+    $$('.sub-view').forEach(v=>v.classList.remove('is-active'));
+    $(`#sub-${name}`).classList.add('is-active');
+    $$('.sub-nav-btn').forEach(b=>b.classList.toggle('is-active',b.dataset.subview===name));
+  }
+
   function ordSuffix(n) {
     if(n>=11&&n<=13) return 'th';
     switch(n%10){case 1:return 'st';case 2:return 'nd';case 3:return 'rd';default:return 'th';}
@@ -977,6 +983,7 @@ const DEFAULTS = {
   function refresh() { syncBalance(); syncSettings(); renderWeek(); renderDashboard(); renderBillsTable(); renderSchedule(); }
 
   $$('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>showView(btn.dataset.view)));
+  $$('.sub-nav-btn').forEach(btn=>btn.addEventListener('click',()=>showSubView(btn.dataset.subview)));
 
   // ── Week view interactions ───────────────────────────────────
   // Toggle this week / next week for meals

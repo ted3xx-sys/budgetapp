@@ -59,7 +59,38 @@ body {
   text-transform: uppercase;
   color: var(--muted-hi);
 }
-.nav { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.nav { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; }
+
+/* ── Sub-nav (lives inside Budget view) ── */
+.sub-nav {
+  display: flex; flex-wrap: wrap; gap: 0.35rem;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.sub-nav-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.32rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .18s;
+  letter-spacing: 0.01em;
+}
+.sub-nav-btn:hover { color: var(--text); background: var(--surface); }
+.sub-nav-btn.is-active {
+  background: var(--surface);
+  border-color: var(--border-hi);
+  color: var(--text);
+  font-weight: 600;
+}
+.sub-view { display: none; }
+.sub-view.is-active { display: block; }
 .nav-btn {
   font: inherit;
   font-size: 0.82rem;

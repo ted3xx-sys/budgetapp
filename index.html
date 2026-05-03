@@ -39,9 +39,7 @@
     </div>
     <nav class="nav">
       <button type="button" class="nav-btn is-active" data-view="week">Week</button>
-      <button type="button" class="nav-btn" data-view="dashboard">Budget</button>
-      <button type="button" class="nav-btn" data-view="bills">Bills</button>
-      <button type="button" class="nav-btn" data-view="schedule">Pay schedule</button>
+      <button type="button" class="nav-btn" data-view="budget">Budget</button>
       <button type="button" class="nav-btn" data-view="settings">Settings</button>
     </nav>
   </header>
@@ -99,8 +97,16 @@
 
     </section>
 
-    <!-- ═══ BUDGET ═════════════════════════════════════ -->
-    <section id="view-dashboard" class="view">
+    <!-- ═══ BUDGET (with sub-nav) ══════════════════════ -->
+    <section id="view-budget" class="view">
+
+      <nav class="sub-nav">
+        <button type="button" class="sub-nav-btn is-active" data-subview="overview">Overview</button>
+        <button type="button" class="sub-nav-btn" data-subview="bills">Bills</button>
+        <button type="button" class="sub-nav-btn" data-subview="schedule">Pay schedule</button>
+      </nav>
+
+      <div id="sub-overview" class="sub-view is-active">
 
       <div class="hero-grid">
         <div class="hero-card">
@@ -224,10 +230,10 @@
       </div>
       </div><!-- end .cashflow-grid -->
 
-    </section>
+      </div><!-- end #sub-overview -->
 
-    <!-- ═══ BILLS ══════════════════════════════════════ -->
-    <section id="view-bills" class="view">
+      <!-- ═══ BILLS sub-view ═══════════════════════════ -->
+      <div id="sub-bills" class="sub-view">
       <div class="card">
         <div class="card-title">At a glance</div>
         <div class="cat-totals-grid" id="cat-totals"></div>
@@ -274,10 +280,10 @@
           </div>
         </dl>
       </div>
-    </section>
+      </div><!-- end #sub-bills -->
 
-    <!-- ═══ SCHEDULE ═══════════════════════════════════ -->
-    <section id="view-schedule" class="view">
+      <!-- ═══ SCHEDULE sub-view ════════════════════════ -->
+      <div id="sub-schedule" class="sub-view">
       <div class="card">
         <div class="card-title">Pay schedule — next 5 weeks</div>
         <p class="hint" style="margin-bottom:1rem">
@@ -287,6 +293,8 @@
         </p>
         <ul id="list-schedule" class="event-list"></ul>
       </div>
+      </div><!-- end #sub-schedule -->
+
     </section>
 
     <!-- ═══ SETTINGS ═══════════════════════════════════ -->
