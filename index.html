@@ -51,19 +51,19 @@
 
       <!-- Today -->
       <div class="card">
-        <div class="card-title" id="today-title">Today</div>
+        <div class="card-title" id="today-title">📅 Today</div>
         <div id="today-content"></div>
       </div>
 
-      <!-- Next Week Snapshot (the focus) -->
+      <!-- Snapshot tiles -->
       <div class="hero-grid" style="margin-top:1rem;grid-template-columns:1fr 1fr">
         <div class="hero-card" id="snapshot-now-card">
-          <div class="hero-label">Available now</div>
+          <div class="hero-label">💰 Available now</div>
           <div class="hero-value" id="snapshot-now">—</div>
           <div class="hero-sub" id="snapshot-now-sub">As of today</div>
         </div>
         <div class="hero-card" id="snapshot-next-card">
-          <div class="hero-label" id="snapshot-next-label">Available 7 days out</div>
+          <div class="hero-label" id="snapshot-next-label">📈 7 days out</div>
           <div class="hero-value" id="snapshot-next">—</div>
           <div class="hero-sub" id="snapshot-next-sub">Projected one week from today</div>
         </div>
@@ -71,27 +71,26 @@
 
       <!-- Meals -->
       <div class="card mt">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
-          <span id="meals-title">Meals — this week</span>
-          <div style="display:flex;gap:0.4rem">
-            <button type="button" class="btn ghost meals-week-btn is-active" data-week="cur" style="font-size:0.75rem;padding:0.3rem 0.75rem">This week</button>
-            <button type="button" class="btn ghost meals-week-btn" data-week="nxt" style="font-size:0.75rem;padding:0.3rem 0.75rem">Next week</button>
+        <div class="card-title meals-header">
+          <span id="meals-title">🍽 Meals — this week</span>
+          <div class="meals-week-toggle">
+            <button type="button" class="chip-btn meals-week-btn is-active" data-week="cur">This week</button>
+            <button type="button" class="chip-btn meals-week-btn" data-week="nxt">Next week</button>
           </div>
         </div>
-        <p class="hint" style="margin:0.5rem 0 0.85rem">Tap a day to set the meal. Mon–Sun.</p>
-        <div id="meals-strip" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0.5rem"></div>
+        <div id="meals-strip"></div>
       </div>
 
       <!-- Upcoming events -->
       <div class="card mt">
-        <div class="card-title">Upcoming</div>
-        <p class="hint" style="margin-bottom:0.85rem">Things to remember together — kid stuff, appointments, household tasks. Past items auto-fade.</p>
+        <div class="card-title">📌 Upcoming</div>
         <ul id="events-list" class="event-list"></ul>
-        <div id="event-add-form" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;align-items:center">
-          <input type="date"  id="event-add-date" style="background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
-          <input type="text"  id="event-add-title" placeholder="Title (e.g. Kid dentist 3pm)" style="flex:1;min-width:180px;background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
-          <input type="text"  id="event-add-notes" placeholder="Notes (optional)" style="flex:1;min-width:140px;background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
-          <button type="button" class="btn" id="event-add-submit">Add</button>
+        <div id="event-add-form" class="event-add-form">
+          <input type="date" id="event-add-date" />
+          <input type="time" id="event-add-time" />
+          <input type="text" id="event-add-title" placeholder="Title (e.g. Kid dentist)" />
+          <input type="text" id="event-add-notes" placeholder="Notes (optional)" />
+          <button type="button" class="chip-btn chip-primary" id="event-add-submit">Add</button>
         </div>
       </div>
 
@@ -184,9 +183,6 @@
             <tbody id="flow-tbody"></tbody>
           </table>
         </div>
-        <p class="flow-note">
-          Income adds, bills subtract — sorted by date. Past items are dimmed. <strong>Tap a bill amount</strong> to adjust for this period. <strong>Check the box</strong> to mark a bill as paid. <strong>Check income</strong> to mark a paycheck as already in your bank balance. <strong>Safe to spend</strong> = bank balance + pending paychecks − unpaid bills.
-        </p>
         <div class="quick-add-wrap">
           <button type="button" class="btn ghost qa-toggle" data-target="qa-form-cur" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
           <div class="quick-add-form" id="qa-form-cur" style="display:none">
@@ -214,9 +210,6 @@
             <tbody id="lookahead-tbody"></tbody>
           </table>
         </div>
-        <p class="flow-note">
-          Projected cashflow for next half, starting from end-of-half balance. Add one-time bills that don't recur.
-        </p>
         <div class="quick-add-wrap">
           <button type="button" class="btn ghost qa-toggle" data-target="qa-form-nxt" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
           <div class="quick-add-form" id="qa-form-nxt" style="display:none">
@@ -235,11 +228,7 @@
       <!-- ═══ BILLS sub-view ═══════════════════════════ -->
       <div id="sub-bills" class="sub-view">
       <div class="card mt">
-        <div class="card-title">Bills</div>
-        <p class="hint" style="margin-bottom:1rem">
-          Turn <strong>Recurring</strong> on, then pick <strong>Monthly</strong> (day-of-month) or <strong>Weekly</strong> (day-of-week — for things like groceries or fuel).
-          Leave Recurring off to set a specific one-time date.
-        </p>
+        <div class="card-title">🧾 Bills</div>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -260,8 +249,7 @@
       </div>
 
       <div class="card totals mt">
-        <div class="card-title">Monthly totals</div>
-        <p class="hint" style="margin-bottom:1rem">Weekly bills (e.g. groceries, fuel) are multiplied by 4.33 to estimate their monthly equivalent.</p>
+        <div class="card-title">📊 Monthly totals</div>
         <div class="cat-totals-grid" id="cat-totals" style="margin-bottom:1.25rem"></div>
         <dl style="border-top:1px solid var(--border);padding-top:1rem">
           <div class="totals-row">
@@ -287,12 +275,8 @@
       <!-- ═══ SCHEDULE sub-view ════════════════════════ -->
       <div id="sub-schedule" class="sub-view">
       <div class="card">
-        <div class="card-title">Pay schedule — next 5 weeks</div>
-        <p class="hint" style="margin-bottom:1rem">
-          Salary: <strong id="sched-wife-line"></strong>.
-          Your Thursdays alternate <strong>Payday</strong> ($1,000 default) and <strong>Instapay</strong> ($700 default).
-          The next upcoming Payday and Instapay can be overridden based on what you actually worked. Everything else uses defaults for forecasting.
-        </p>
+        <div class="card-title">💵 Pay schedule</div>
+        <div class="sched-header"><span id="sched-wife-line"></span></div>
         <ul id="list-schedule" class="event-list"></ul>
       </div>
       </div><!-- end #sub-schedule -->
@@ -302,7 +286,7 @@
     <!-- ═══ SETTINGS ═══════════════════════════════════ -->
     <section id="view-settings" class="view">
       <div class="card">
-        <div class="card-title">Income defaults</div>
+        <div class="card-title">⚙️ Income defaults</div>
         <div class="settings-grid">
           <label>Wife weekly (Tuesdays)<input id="set-wife" type="number" min="0" step="0.01" /></label>
           <label>Your payday default (Thu)<input id="set-payday" type="number" min="0" step="0.01" /></label>
@@ -314,8 +298,7 @@
         </div>
       </div>
       <div class="card mt">
-        <div class="card-title">Data</div>
-        <p class="hint" style="margin-bottom:0.9rem">Everything stays in your browser. Export to back up; import to restore.</p>
+        <div class="card-title">💾 Data</div>
         <div class="btn-row">
           <button type="button" id="btn-export" class="btn">Export JSON</button>
           <label class="btn ghost file-label">Import JSON<input id="input-import" type="file" accept="application/json" hidden /></label>

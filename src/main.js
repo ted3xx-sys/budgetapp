@@ -85,6 +85,17 @@ const DEFAULTS = {
 
   let S = await loadState();
 
+  // Prune events that ended more than 3 days ago — keeps the list clean
+  // without the user having to remove them manually.
+  await pruneStaleEvents();
+  async function pruneStaleEvents() {
+    const cutoffIso = `${(d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date(Date.now() - 3 * 86400000))}`;
+    const stale = S.events.filter(e => e.date < cutoffIso);
+    if (!stale.length) return;
+    S.events = S.events.filter(e => e.date >= cutoffIso);
+    await Promise.all(stale.map(e => deleteEventRow(e.id)));
+  }
+
   async function loadState() {
     try {
       const [
@@ -149,6 +160,7 @@ const DEFAULTS = {
         s.events = events.map(e => ({
           id:    e.id,
           date:  e.event_date,
+          time:  e.event_time || '',
           title: e.title || '',
           notes: e.notes || '',
         }));
@@ -228,6 +240,7 @@ const DEFAULTS = {
       id:         ev.id,
       user_id:    USER_ID,
       event_date: ev.date,
+      event_time: ev.time || null,
       title:      ev.title || '',
       notes:      ev.notes || '',
     });
@@ -545,6 +558,16 @@ const DEFAULTS = {
   }
 
   let mealsWeekOffset = 0; // 0 = current week, 1 = next week
+  let editingEventId = null; // when set, that event renders as an inline edit form
+
+  function fmtTime(hhmm) {
+    if (!hhmm) return '';
+    const [h, m] = String(hhmm).split(':').map(Number);
+    if (isNaN(h)) return '';
+    const period = h >= 12 ? 'pm' : 'am';
+    const h12 = ((h + 11) % 12) + 1;
+    return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2,'0')}${period}`;
+  }
 
   // Walk the timeline (same logic as buildCashflow) up to and including
   // targetDate, returning the running balance at that point + the lowest
@@ -607,20 +630,25 @@ const DEFAULTS = {
   function renderToday() {
     const todayIso = toIso(new Date());
     const meal = S.meals.find(m => m.date === todayIso);
-    const todayEvents = S.events.filter(e => e.date === todayIso);
+    const todayEvents = S.events
+      .filter(e => e.date === todayIso)
+      .sort((a,b) => (a.time||'99').localeCompare(b.time||'99'));
     const dateLabel = fmtLong(new Date());
 
     const mealLine = meal && meal.name
-      ? `<div><span style="color:var(--muted);font-size:0.8rem">Dinner: </span><strong>${esc(meal.name)}</strong>${meal.notes ? ` <span style="color:var(--muted);font-size:0.8rem">· ${esc(meal.notes)}</span>` : ''}</div>`
-      : `<div style="color:var(--muted);font-size:0.9rem">No meal planned for tonight</div>`;
+      ? `<div><span class="today-lbl">Dinner</span><strong>${esc(meal.name)}</strong>${meal.notes ? ` <span class="today-meta">· ${esc(meal.notes)}</span>` : ''}</div>`
+      : `<div class="today-empty">No meal planned for tonight</div>`;
 
     const eventsLine = todayEvents.length
-      ? `<div style="display:flex;flex-direction:column;gap:0.25rem">${todayEvents.map(e => `<div>📌 <strong>${esc(e.title)}</strong>${e.notes ? ` <span style="color:var(--muted);font-size:0.8rem">· ${esc(e.notes)}</span>` : ''}</div>`).join('')}</div>`
-      : `<div style="color:var(--muted);font-size:0.9rem">Nothing on the calendar today</div>`;
+      ? `<div class="today-events">${todayEvents.map(e => {
+          const t = e.time ? `<span class="today-time">${fmtTime(e.time)}</span> ` : '';
+          return `<div>${t}<strong>${esc(e.title)}</strong>${e.notes ? ` <span class="today-meta">· ${esc(e.notes)}</span>` : ''}</div>`;
+        }).join('')}</div>`
+      : `<div class="today-empty">Nothing on the calendar today</div>`;
 
-    document.getElementById('today-title').textContent = `Today — ${dateLabel}`;
+    document.getElementById('today-title').textContent = `📅 Today — ${dateLabel}`;
     document.getElementById('today-content').innerHTML =
-      `<div style="display:flex;flex-direction:column;gap:0.5rem">${mealLine}${eventsLine}</div>`;
+      `<div class="today-stack">${mealLine}${eventsLine}</div>`;
   }
 
   function renderSnapshots() {
@@ -659,8 +687,8 @@ const DEFAULTS = {
     const todayIso = toIso(new Date());
     document.getElementById('meals-title').textContent =
       mealsWeekOffset === 0
-        ? `Meals — this week (${fmtShort(start)} – ${fmtShort(end)})`
-        : `Meals — next week (${fmtShort(start)} – ${fmtShort(end)})`;
+        ? `🍽 Meals — this week (${fmtShort(start)} – ${fmtShort(end)})`
+        : `🍽 Meals — next week (${fmtShort(start)} – ${fmtShort(end)})`;
 
     const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const cells = [];
@@ -669,50 +697,78 @@ const DEFAULTS = {
       const iso = toIso(d);
       const meal = S.meals.find(m => m.date === iso);
       const isToday = iso === todayIso;
-      const todayStyle = isToday ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)' : '';
+      const cellCls = isToday ? 'meal-cell is-today' : 'meal-cell';
       cells.push(`
-        <div class="meal-cell" style="background:rgba(255,255,255,0.03);border:1px solid #1f2937;border-radius:8px;padding:0.55rem;${todayStyle}">
-          <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;font-weight:600">${dayLabels[i]}</div>
-          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.4rem">${d.getMonth()+1}/${d.getDate()}</div>
-          <input type="text" class="meal-name-input" data-date="${iso}" value="${esc(meal?.name || '')}" placeholder="—"
-            style="background:transparent;border:none;border-bottom:1px solid transparent;color:var(--ink);font-size:0.9rem;width:100%;outline:none;padding:0.1rem 0;font-family:inherit" />
+        <div class="${cellCls}">
+          <div class="meal-day">${dayLabels[i]}</div>
+          <div class="meal-date">${d.getMonth()+1}/${d.getDate()}</div>
+          <textarea class="meal-name-input" data-date="${iso}" rows="1" placeholder="—"
+            spellcheck="false">${esc(meal?.name || '')}</textarea>
         </div>
       `);
     }
-    document.getElementById('meals-strip').innerHTML = cells.join('');
+    const stripEl = document.getElementById('meals-strip');
+    stripEl.innerHTML = cells.join('');
+    // Auto-size each textarea to its content on initial render
+    stripEl.querySelectorAll('.meal-name-input').forEach(autoResizeTextarea);
+  }
+
+  function autoResizeTextarea(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = (ta.scrollHeight) + 'px';
   }
 
   function renderUpcomingEvents() {
     const today = sod(new Date());
-    const horizon = addDays(today, 21); // show next 3 weeks
+    const horizon = addDays(today, 21);
     const list = document.getElementById('events-list');
     const sorted = [...S.events]
-      .filter(e => {
-        const d = parseIso(e.date);
-        return d >= addDays(today, -1) && d <= horizon;
-      })
-      .sort((a,b) => a.date.localeCompare(b.date));
+      .filter(e => parseIso(e.date) <= horizon)
+      .sort((a,b) =>
+        a.date.localeCompare(b.date) ||
+        (a.time||'99').localeCompare(b.time||'99')
+      );
 
     if (!sorted.length) {
-      list.innerHTML = `<li style="color:var(--muted);font-style:italic">Nothing coming up. Add something below.</li>`;
+      list.innerHTML = `<li class="event-empty">Nothing coming up.</li>`;
     } else {
       list.innerHTML = sorted.map(e => {
+        if (e.id === editingEventId) {
+          // Inline edit row
+          return `
+            <li class="event-row event-editing" data-event-id="${e.id}">
+              <div class="event-edit-grid">
+                <input type="date" class="ev-edit-date" value="${esc(e.date)}" />
+                <input type="time" class="ev-edit-time" value="${esc(e.time||'')}" />
+                <input type="text" class="ev-edit-title" value="${esc(e.title)}" placeholder="Title" />
+                <input type="text" class="ev-edit-notes" value="${esc(e.notes||'')}" placeholder="Notes (optional)" />
+              </div>
+              <div class="event-row-actions">
+                <button type="button" class="chip-btn chip-primary event-save" data-event-id="${e.id}">Save</button>
+                <button type="button" class="chip-btn event-cancel" data-event-id="${e.id}">Cancel</button>
+              </div>
+            </li>
+          `;
+        }
         const d = parseIso(e.date);
         const past = sod(d) < today;
-        const dim = past ? 'opacity:0.45;' : '';
+        const cls = past ? 'event-row is-past' : 'event-row';
+        const timeBadge = e.time ? `<span class="ev-time-badge">${fmtTime(e.time)}</span>` : '';
         return `
-          <li data-event-id="${e.id}" style="${dim}display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem">
-            <span class="ev-left">
-              <span class="ev-labels"><strong>${esc(e.title)}</strong>${e.notes ? ` <span style="color:var(--muted);font-size:0.85rem">· ${esc(e.notes)}</span>` : ''}</span>
-              <span class="ev-meta">${fmtLong(d)}</span>
-            </span>
-            <button type="button" class="btn-del event-del" data-event-id="${e.id}" style="font-size:0.75rem">Remove</button>
+          <li class="${cls}" data-event-id="${e.id}">
+            <div class="event-row-left">
+              <div class="event-row-title">${timeBadge}<strong>${esc(e.title)}</strong></div>
+              <div class="event-row-meta">${fmtLong(d)}${e.notes ? ` · ${esc(e.notes)}` : ''}</div>
+            </div>
+            <div class="event-row-actions">
+              <button type="button" class="chip-btn event-edit" data-event-id="${e.id}">Edit</button>
+              <button type="button" class="chip-btn chip-danger event-del" data-event-id="${e.id}">Remove</button>
+            </div>
           </li>
         `;
       }).join('');
     }
 
-    // Default the date input to today
     const dateInp = document.getElementById('event-add-date');
     if (dateInp && !dateInp.value) dateInp.value = toIso(new Date());
   }
@@ -1009,16 +1065,17 @@ const DEFAULTS = {
     });
   });
 
-  // Edit a meal inline (commit on blur or Enter)
-  document.getElementById('meals-strip').addEventListener('focusout', async (ev) => {
+  // Meal cell: commit on blur, auto-grow on input, Enter blurs / Shift+Enter newline
+  const stripEl = document.getElementById('meals-strip');
+
+  stripEl.addEventListener('focusout', async (ev) => {
     const inp = ev.target;
-    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('meal-name-input')) return;
+    if (!(inp instanceof HTMLTextAreaElement) || !inp.classList.contains('meal-name-input')) return;
     const date = inp.dataset.date;
     const newName = inp.value.trim();
     const existing = S.meals.find(m => m.date === date);
 
     if (!newName) {
-      // Empty → delete the meal row if it existed
       if (existing) {
         S.meals = S.meals.filter(m => m.id !== existing.id);
         await deleteMealRow(existing.id);
@@ -1028,23 +1085,28 @@ const DEFAULTS = {
     }
 
     if (existing) {
-      if (existing.name === newName) return; // no-op
+      if (existing.name === newName) return;
       existing.name = newName;
       await saveMealRow(existing);
     } else {
       const meal = {
         id: `meal-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        date,
-        name: newName,
-        notes: '',
+        date, name: newName, notes: '',
       };
       S.meals.push(meal);
       await saveMealRow(meal);
     }
     renderToday();
   });
-  document.getElementById('meals-strip').addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter' && ev.target.classList.contains('meal-name-input')) {
+
+  stripEl.addEventListener('input', (ev) => {
+    if (ev.target.classList.contains('meal-name-input')) autoResizeTextarea(ev.target);
+  });
+
+  stripEl.addEventListener('keydown', (ev) => {
+    if (!ev.target.classList.contains('meal-name-input')) return;
+    // Plain Enter commits (blurs). Shift+Enter inserts a newline (default).
+    if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault();
       ev.target.blur();
     }
@@ -1053,33 +1115,76 @@ const DEFAULTS = {
   // Add an event
   document.getElementById('event-add-submit').addEventListener('click', async () => {
     const dateEl  = document.getElementById('event-add-date');
+    const timeEl  = document.getElementById('event-add-time');
     const titleEl = document.getElementById('event-add-title');
     const notesEl = document.getElementById('event-add-notes');
     const date  = dateEl.value;
+    const time  = timeEl.value || '';
     const title = titleEl.value.trim();
     const notes = notesEl.value.trim();
     if (!date || !title) { alert('Pick a date and add a title.'); return; }
     const ev = {
       id: `event-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-      date, title, notes,
+      date, time, title, notes,
     };
     S.events.push(ev);
     await saveEventRow(ev);
     titleEl.value = '';
     notesEl.value = '';
+    timeEl.value  = '';
     renderUpcomingEvents();
     renderToday();
   });
 
-  // Delete an event
+  // Edit / save / cancel / delete event
   document.getElementById('events-list').addEventListener('click', async (ev) => {
-    const btn = ev.target.closest('.event-del');
-    if (!btn) return;
-    const id = btn.dataset.eventId;
-    S.events = S.events.filter(e => e.id !== id);
-    await deleteEventRow(id);
-    renderUpcomingEvents();
-    renderToday();
+    const target = ev.target;
+
+    const editBtn = target.closest('.event-edit');
+    if (editBtn) {
+      editingEventId = editBtn.dataset.eventId;
+      renderUpcomingEvents();
+      return;
+    }
+
+    const cancelBtn = target.closest('.event-cancel');
+    if (cancelBtn) {
+      editingEventId = null;
+      renderUpcomingEvents();
+      return;
+    }
+
+    const saveBtn = target.closest('.event-save');
+    if (saveBtn) {
+      const li = saveBtn.closest('li');
+      const id = saveBtn.dataset.eventId;
+      const event = S.events.find(e => e.id === id);
+      if (!event) return;
+      const newDate  = li.querySelector('.ev-edit-date').value;
+      const newTime  = li.querySelector('.ev-edit-time').value || '';
+      const newTitle = li.querySelector('.ev-edit-title').value.trim();
+      const newNotes = li.querySelector('.ev-edit-notes').value.trim();
+      if (!newDate || !newTitle) { alert('Date and title are required.'); return; }
+      event.date  = newDate;
+      event.time  = newTime;
+      event.title = newTitle;
+      event.notes = newNotes;
+      editingEventId = null;
+      await saveEventRow(event);
+      renderUpcomingEvents();
+      renderToday();
+      return;
+    }
+
+    const delBtn = target.closest('.event-del');
+    if (delBtn) {
+      const id = delBtn.dataset.eventId;
+      S.events = S.events.filter(e => e.id !== id);
+      await deleteEventRow(id);
+      renderUpcomingEvents();
+      renderToday();
+      return;
+    }
   });
 
   $('#input-balance').addEventListener('input', async function() { S.balance=this.value; await save(); renderDashboard(); });
