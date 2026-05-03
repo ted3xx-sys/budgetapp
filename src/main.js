@@ -699,7 +699,7 @@ const DEFAULTS = {
         <div class="${cellCls}">
           <div class="meal-day">${dayLabels[i]}</div>
           <div class="meal-date">${d.getMonth()+1}/${d.getDate()}</div>
-          <textarea class="meal-name-input" data-date="${iso}" rows="1" placeholder="⇧ + ⏎ new line"
+          <textarea class="meal-name-input" data-date="${iso}" rows="1" placeholder="—"
             enterkeyhint="enter" spellcheck="false">${esc(meal?.name || '')}</textarea>
         </div>
       `);
