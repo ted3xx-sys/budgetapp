@@ -661,22 +661,20 @@ const DEFAULTS = {
     const next = runningBalanceAt(sevenOut);
 
     document.getElementById('snapshot-now').textContent = money(now.running);
-    document.getElementById('snapshot-now-sub').textContent =
-      `As of today · ${fmtLong(today)}`;
+    document.getElementById('snapshot-now-sub').innerHTML =
+      `<div>As of today:</div><div>${fmtLong(today)}</div>`;
     document.getElementById('snapshot-now-card').className =
       'hero-card' + (now.running <= 0 ? ' danger' : now.running < 200 ? ' warn' : ' safe');
 
-    document.getElementById('snapshot-next-label').textContent = 'Available 7 days out';
+    document.getElementById('snapshot-next-label').innerHTML =
+      `<span>Available</span><span class="hero-label-sub">▸ 7 Days Out</span>`;
     document.getElementById('snapshot-next').textContent = money(next.running);
 
-    // Negative-flag warning: did the running balance dip below zero anywhere
-    // in the 7-day window?
     const dippedNegative = next.minRunning < 0;
-    let nextSub = `Projected by ${fmtLong(sevenOut)}`;
-    if (dippedNegative) {
-      nextSub = `⚠ Dips to ${money(next.minRunning)} on ${fmtShort(next.minDate)}`;
-    }
-    document.getElementById('snapshot-next-sub').textContent = nextSub;
+    const nextSub = dippedNegative
+      ? `<div>⚠ Dips to ${money(next.minRunning)}</div><div>on ${fmtShort(next.minDate)}</div>`
+      : `<div>Projected by:</div><div>${fmtLong(sevenOut)}</div>`;
+    document.getElementById('snapshot-next-sub').innerHTML = nextSub;
     document.getElementById('snapshot-next-card').className =
       'hero-card' + (dippedNegative || next.running <= 0 ? ' danger' : next.running < 200 ? ' warn' : ' safe');
   }
