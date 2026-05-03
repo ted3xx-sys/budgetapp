@@ -681,10 +681,10 @@ const DEFAULTS = {
   function renderMealsStrip() {
     const { start, end } = weekRange(new Date(), mealsWeekOffset);
     const todayIso = toIso(new Date());
-    document.getElementById('meals-title').textContent =
+    document.getElementById('meals-title').innerHTML =
       mealsWeekOffset === 0
-        ? `🍽 Meals — this week (${fmtShort(start)} – ${fmtShort(end)})`
-        : `🍽 Meals — next week (${fmtShort(start)} – ${fmtShort(end)})`;
+        ? `<span>🍽 Meals</span><span class="card-subtitle">▸ This Week: ${fmtShort(start)} – ${fmtShort(end)}</span>`
+        : `<span>🍽 Meals</span><span class="card-subtitle">▸ Next Week: ${fmtShort(start)} – ${fmtShort(end)}</span>`;
 
     const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const cells = [];

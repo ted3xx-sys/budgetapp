@@ -192,11 +192,11 @@ body {
 }
 
 .hero-label {
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text);
+  color: var(--muted-hi);
   margin-bottom: 0.6rem;
 }
 .hero-label-sub {
