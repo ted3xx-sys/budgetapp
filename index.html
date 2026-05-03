@@ -38,7 +38,8 @@
       <div class="logo">Gloodt Home Planner</div>
     </div>
     <nav class="nav">
-      <button type="button" class="nav-btn is-active" data-view="dashboard">Dashboard</button>
+      <button type="button" class="nav-btn is-active" data-view="week">Week</button>
+      <button type="button" class="nav-btn" data-view="dashboard">Budget</button>
       <button type="button" class="nav-btn" data-view="bills">Bills</button>
       <button type="button" class="nav-btn" data-view="schedule">Pay schedule</button>
       <button type="button" class="nav-btn" data-view="settings">Settings</button>
@@ -47,8 +48,59 @@
 
   <main>
 
-    <!-- ═══ DASHBOARD ══════════════════════════════════ -->
-    <section id="view-dashboard" class="view is-active">
+    <!-- ═══ WEEK (front door) ══════════════════════════ -->
+    <section id="view-week" class="view is-active">
+
+      <!-- Today -->
+      <div class="card">
+        <div class="card-title" id="today-title">Today</div>
+        <div id="today-content"></div>
+      </div>
+
+      <!-- Next Week Snapshot (the focus) -->
+      <div class="hero-grid" style="margin-top:1rem;grid-template-columns:1fr 1fr">
+        <div class="hero-card" id="snapshot-now-card">
+          <div class="hero-label">Available now</div>
+          <div class="hero-value" id="snapshot-now">—</div>
+          <div class="hero-sub" id="snapshot-now-sub">As of today</div>
+        </div>
+        <div class="hero-card" id="snapshot-next-card">
+          <div class="hero-label" id="snapshot-next-label">Available 7 days out</div>
+          <div class="hero-value" id="snapshot-next">—</div>
+          <div class="hero-sub" id="snapshot-next-sub">Projected one week from today</div>
+        </div>
+      </div>
+
+      <!-- Meals -->
+      <div class="card mt">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+          <span id="meals-title">Meals — this week</span>
+          <div style="display:flex;gap:0.4rem">
+            <button type="button" class="btn ghost meals-week-btn is-active" data-week="cur" style="font-size:0.75rem;padding:0.3rem 0.75rem">This week</button>
+            <button type="button" class="btn ghost meals-week-btn" data-week="nxt" style="font-size:0.75rem;padding:0.3rem 0.75rem">Next week</button>
+          </div>
+        </div>
+        <p class="hint" style="margin:0.5rem 0 0.85rem">Tap a day to set the meal. Mon–Sun.</p>
+        <div id="meals-strip" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0.5rem"></div>
+      </div>
+
+      <!-- Upcoming events -->
+      <div class="card mt">
+        <div class="card-title">Upcoming</div>
+        <p class="hint" style="margin-bottom:0.85rem">Things to remember together — kid stuff, appointments, household tasks. Past items auto-fade.</p>
+        <ul id="events-list" class="event-list"></ul>
+        <div id="event-add-form" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;align-items:center">
+          <input type="date"  id="event-add-date" style="background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
+          <input type="text"  id="event-add-title" placeholder="Title (e.g. Kid dentist 3pm)" style="flex:1;min-width:180px;background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
+          <input type="text"  id="event-add-notes" placeholder="Notes (optional)" style="flex:1;min-width:140px;background:#0f1629;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:0.45rem 0.7rem;font-size:0.9rem" />
+          <button type="button" class="btn" id="event-add-submit">Add</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ═══ BUDGET ═════════════════════════════════════ -->
+    <section id="view-dashboard" class="view">
 
       <div class="hero-grid">
         <div class="hero-card">

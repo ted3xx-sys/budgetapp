@@ -72,6 +72,8 @@ const DEFAULTS = {
   unpaidBills: {},
   billOverrides: {},
   clearedIncome: {},
+  meals: [],   // [{ id, date (YYYY-MM-DD), name, notes }]
+  events: [],  // [{ id, date (YYYY-MM-DD), title, notes }]
 };
 
 (async function () {
@@ -85,12 +87,21 @@ const DEFAULTS = {
 
   async function loadState() {
     try {
-      const [{ data: settingsRow, error: sErr }, { data: bills, error: bErr }] = await Promise.all([
+      const [
+        { data: settingsRow, error: sErr },
+        { data: bills,       error: bErr },
+        { data: meals,       error: mErr },
+        { data: events,      error: eErr },
+      ] = await Promise.all([
         supabase.from('settings').select('*').eq('user_id', USER_ID).maybeSingle(),
         supabase.from('bills').select('*').eq('user_id', USER_ID),
+        supabase.from('meals').select('*').eq('user_id', USER_ID),
+        supabase.from('events').select('*').eq('user_id', USER_ID),
       ]);
       if (sErr) throw sErr;
       if (bErr) throw bErr;
+      if (mErr) throw mErr;
+      if (eErr) throw eErr;
 
       const s = clone(DEFAULTS);
 
@@ -121,6 +132,24 @@ const DEFAULTS = {
           dueDate:   b.due_date || '',
           autodraft: !!b.is_autodraft,
           category:  b.category || '',
+        }));
+      }
+
+      if (meals && meals.length) {
+        s.meals = meals.map(m => ({
+          id:    m.id,
+          date:  m.meal_date,
+          name:  m.name || '',
+          notes: m.notes || '',
+        }));
+      }
+
+      if (events && events.length) {
+        s.events = events.map(e => ({
+          id:    e.id,
+          date:  e.event_date,
+          title: e.title || '',
+          notes: e.notes || '',
         }));
       }
 
@@ -175,6 +204,36 @@ const DEFAULTS = {
       ? supabase.from('bills').delete().eq('user_id', USER_ID).not('id', 'in', `(${billIds.join(',')})`)
       : supabase.from('bills').delete().eq('user_id', USER_ID);
     del.then(({ error }) => { if (error) console.error('delete bills error:', error); });
+  }
+
+  // ── Meals & events targeted save helpers (avoid round-tripping all bills) ──
+  async function saveMealRow(meal) {
+    const { error } = await supabase.from('meals').upsert({
+      id:        meal.id,
+      user_id:   USER_ID,
+      meal_date: meal.date,
+      name:      meal.name || '',
+      notes:     meal.notes || '',
+    });
+    if (error) console.error('saveMealRow error:', error);
+  }
+  async function deleteMealRow(id) {
+    const { error } = await supabase.from('meals').delete().eq('id', id);
+    if (error) console.error('deleteMealRow error:', error);
+  }
+  async function saveEventRow(ev) {
+    const { error } = await supabase.from('events').upsert({
+      id:         ev.id,
+      user_id:    USER_ID,
+      event_date: ev.date,
+      title:      ev.title || '',
+      notes:      ev.notes || '',
+    });
+    if (error) console.error('saveEventRow error:', error);
+  }
+  async function deleteEventRow(id) {
+    const { error } = await supabase.from('events').delete().eq('id', id);
+    if (error) console.error('deleteEventRow error:', error);
   }
 
   function parseIso(s) { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
@@ -319,7 +378,7 @@ const DEFAULTS = {
     el.innerHTML = CATS.map(c => {
       const total = S.bills.filter(b=>b.category===c.key).reduce((s,b)=>s+(Number(b.amount)||0),0);
       return `<div class="cat-total"><div class="cat-lbl">${c.label}</div><div class="cat-amt">${money(total)}</div></div>`;
-    }).join('') + `<div class="cat-total" style="border-color:rgba(129,140,248,.2)"><div class="cat-lbl" style="color:var(--accent)">All Bills</div><div class="cat-amt" style="color:var(--accent)">${money(S.bills.reduce((s,b)=>s+(Number(b.amount)||0),0))}</div></div>`;
+    }).join('') + `<div class="cat-total" style="border-color:rgba(91,141,239,.2)"><div class="cat-lbl" style="color:var(--accent)">All Bills</div><div class="cat-amt" style="color:var(--accent)">${money(S.bills.reduce((s,b)=>s+(Number(b.amount)||0),0))}</div></div>`;
   }
 
   // Reusable: build a cashflow table into a tbody, returns final running balance
@@ -362,7 +421,7 @@ const DEFAULTS = {
           ? `<input type="checkbox" class="cleared-check" data-key="${item.key}" ${cleared?'checked':''} title="Check if this paycheck already cleared and is sitting in your bank balance" />`
           : '';
         const clearedTag = cleared
-          ? '<span class="tag" style="background:rgba(129,140,248,.1);color:var(--accent);border:1px solid rgba(129,140,248,.25);margin-left:0.3rem">in bank</span>'
+          ? '<span class="tag" style="background:rgba(91,141,239,.1);color:var(--accent);border:1px solid rgba(91,141,239,.25);margin-left:0.3rem">in bank</span>'
           : '';
         const incDim = effectivePast ? alpha : '';
         const metaText = cleared ? ' · in bank' : past ? ' · past' : '';
@@ -416,7 +475,203 @@ const DEFAULTS = {
     return running;
   }
 
+  // ── Week helpers ────────────────────────────────────────────
+  // Mon-anchored week. Returns { start: Mon, end: Sun }
+  function weekRange(ref, weekOffset = 0) {
+    const d = sod(ref || new Date());
+    const dow = d.getDay(); // 0=Sun..6=Sat
+    // Days back to Monday: Sun(0)→6, Mon(1)→0, Tue(2)→1, ... Sat(6)→5
+    const daysBackToMon = (dow + 6) % 7;
+    const monday = addDays(d, -daysBackToMon + weekOffset * 7);
+    const sunday = addDays(monday, 6);
+    return { start: monday, end: sunday };
+  }
+
+  let mealsWeekOffset = 0; // 0 = current week, 1 = next week
+
+  // Walk the timeline (same logic as buildCashflow) up to and including
+  // targetDate, returning the running balance at that point + the lowest
+  // running balance encountered (for negative-flag warnings).
+  function runningBalanceAt(targetDate) {
+    const today = new Date();
+    const cfg   = S.settings;
+    const bal       = Number(S.balance)||0;
+    const miscIn    = Number(S.miscIncome)||0;
+    const miscOut   = Number(S.miscExpense)||0;
+    const groceries = Number(S.groceries)||0;
+    const fuel      = Number(S.fuel)||0;
+    const start     = bal + miscIn - miscOut - groceries - fuel;
+
+    // Window: from start of current half through targetDate (extending into
+    // next half if targetDate falls past current half's end).
+    const half = calendarHalf(today);
+    const periodStart = half.start;
+    const periodEnd   = sod(targetDate) > sod(half.end) ? targetDate : half.end;
+
+    const incEvents = allIncome(cfg, S.incomeOverrides, periodStart, periodEnd);
+    const bills     = billsInHalf(S.bills, periodStart, periodEnd, today);
+
+    const timeline = [];
+    incEvents.forEach(e => timeline.push({date: e.date, type: 'income', amount: e.amount, key: e.key}));
+    bills.forEach(({bill, date}) => {
+      const bkey = bill.id + '-' + toIso(date);
+      const overAmt = S.billOverrides[bkey];
+      const baseAmt = Number(bill.amount)||0;
+      const amt = (overAmt!=null && overAmt!=='') ? Number(overAmt) : baseAmt;
+      timeline.push({date, type: 'bill', amount: amt, bkey});
+    });
+    timeline.sort((a,b) => a.date - b.date || (a.type === 'income' ? -1 : 1));
+
+    let running = start;
+    let minRunning = start;
+    let minDate = today;
+
+    for (const item of timeline) {
+      if (sod(item.date) > sod(targetDate)) break;
+      const past = sod(item.date) < sod(today);
+      if (item.type === 'income') {
+        const cleared = !!S.clearedIncome[item.key];
+        // Past or cleared income is already in bank balance; only future uncleared
+        // income moves the running total.
+        if (!past && !cleared) running += item.amount;
+      } else {
+        const isChecked = past ? !S.unpaidBills[item.bkey] : !!S.paidBills[item.bkey];
+        if (!isChecked) running -= item.amount;
+      }
+      if (running < minRunning) {
+        minRunning = running;
+        minDate = item.date;
+      }
+    }
+
+    return { running, minRunning, minDate };
+  }
+
+  function renderToday() {
+    const todayIso = toIso(new Date());
+    const meal = S.meals.find(m => m.date === todayIso);
+    const todayEvents = S.events.filter(e => e.date === todayIso);
+    const dateLabel = fmtLong(new Date());
+
+    const mealLine = meal && meal.name
+      ? `<div><span style="color:var(--muted);font-size:0.8rem">Dinner: </span><strong>${esc(meal.name)}</strong>${meal.notes ? ` <span style="color:var(--muted);font-size:0.8rem">· ${esc(meal.notes)}</span>` : ''}</div>`
+      : `<div style="color:var(--muted);font-size:0.9rem">No meal planned for tonight</div>`;
+
+    const eventsLine = todayEvents.length
+      ? `<div style="display:flex;flex-direction:column;gap:0.25rem">${todayEvents.map(e => `<div>📌 <strong>${esc(e.title)}</strong>${e.notes ? ` <span style="color:var(--muted);font-size:0.8rem">· ${esc(e.notes)}</span>` : ''}</div>`).join('')}</div>`
+      : `<div style="color:var(--muted);font-size:0.9rem">Nothing on the calendar today</div>`;
+
+    document.getElementById('today-title').textContent = `Today — ${dateLabel}`;
+    document.getElementById('today-content').innerHTML =
+      `<div style="display:flex;flex-direction:column;gap:0.5rem">${mealLine}${eventsLine}</div>`;
+  }
+
+  function renderSnapshots() {
+    const today = new Date();
+    const sevenOut = addDays(today, 7);
+
+    // "Available now" = running balance at end of today (matches the cashflow
+    // chart at today's row).
+    const now  = runningBalanceAt(today);
+    // "Available 7 days out" = projected running balance one week from today.
+    const next = runningBalanceAt(sevenOut);
+
+    document.getElementById('snapshot-now').textContent = money(now.running);
+    document.getElementById('snapshot-now-sub').textContent =
+      `As of today · ${fmtLong(today)}`;
+    document.getElementById('snapshot-now-card').className =
+      'hero-card' + (now.running <= 0 ? ' danger' : now.running < 200 ? ' warn' : ' safe');
+
+    document.getElementById('snapshot-next-label').textContent = 'Available 7 days out';
+    document.getElementById('snapshot-next').textContent = money(next.running);
+
+    // Negative-flag warning: did the running balance dip below zero anywhere
+    // in the 7-day window?
+    const dippedNegative = next.minRunning < 0;
+    let nextSub = `Projected by ${fmtLong(sevenOut)}`;
+    if (dippedNegative) {
+      nextSub = `⚠ Dips to ${money(next.minRunning)} on ${fmtShort(next.minDate)}`;
+    }
+    document.getElementById('snapshot-next-sub').textContent = nextSub;
+    document.getElementById('snapshot-next-card').className =
+      'hero-card' + (dippedNegative || next.running <= 0 ? ' danger' : next.running < 200 ? ' warn' : ' safe');
+  }
+
+  function renderMealsStrip() {
+    const { start, end } = weekRange(new Date(), mealsWeekOffset);
+    const todayIso = toIso(new Date());
+    document.getElementById('meals-title').textContent =
+      mealsWeekOffset === 0
+        ? `Meals — this week (${fmtShort(start)} – ${fmtShort(end)})`
+        : `Meals — next week (${fmtShort(start)} – ${fmtShort(end)})`;
+
+    const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const cells = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      const iso = toIso(d);
+      const meal = S.meals.find(m => m.date === iso);
+      const isToday = iso === todayIso;
+      const todayStyle = isToday ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)' : '';
+      cells.push(`
+        <div class="meal-cell" style="background:rgba(255,255,255,0.03);border:1px solid #1f2937;border-radius:8px;padding:0.55rem;${todayStyle}">
+          <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;font-weight:600">${dayLabels[i]}</div>
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.4rem">${d.getMonth()+1}/${d.getDate()}</div>
+          <input type="text" class="meal-name-input" data-date="${iso}" value="${esc(meal?.name || '')}" placeholder="—"
+            style="background:transparent;border:none;border-bottom:1px solid transparent;color:var(--ink);font-size:0.9rem;width:100%;outline:none;padding:0.1rem 0;font-family:inherit" />
+        </div>
+      `);
+    }
+    document.getElementById('meals-strip').innerHTML = cells.join('');
+  }
+
+  function renderUpcomingEvents() {
+    const today = sod(new Date());
+    const horizon = addDays(today, 21); // show next 3 weeks
+    const list = document.getElementById('events-list');
+    const sorted = [...S.events]
+      .filter(e => {
+        const d = parseIso(e.date);
+        return d >= addDays(today, -1) && d <= horizon;
+      })
+      .sort((a,b) => a.date.localeCompare(b.date));
+
+    if (!sorted.length) {
+      list.innerHTML = `<li style="color:var(--muted);font-style:italic">Nothing coming up. Add something below.</li>`;
+    } else {
+      list.innerHTML = sorted.map(e => {
+        const d = parseIso(e.date);
+        const past = sod(d) < today;
+        const dim = past ? 'opacity:0.45;' : '';
+        return `
+          <li data-event-id="${e.id}" style="${dim}display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem">
+            <span class="ev-left">
+              <span class="ev-labels"><strong>${esc(e.title)}</strong>${e.notes ? ` <span style="color:var(--muted);font-size:0.85rem">· ${esc(e.notes)}</span>` : ''}</span>
+              <span class="ev-meta">${fmtLong(d)}</span>
+            </span>
+            <button type="button" class="btn-del event-del" data-event-id="${e.id}" style="font-size:0.75rem">Remove</button>
+          </li>
+        `;
+      }).join('');
+    }
+
+    // Default the date input to today
+    const dateInp = document.getElementById('event-add-date');
+    if (dateInp && !dateInp.value) dateInp.value = toIso(new Date());
+  }
+
+  function renderWeek() {
+    renderToday();
+    renderSnapshots();
+    renderMealsStrip();
+    renderUpcomingEvents();
+  }
+
   function renderDashboard() {
+    // Keep the Week-view snapshot card in sync — every budget-side change
+    // (balance, paid bills, income overrides, etc.) flows through here.
+    renderSnapshots();
+
     const today = new Date();
     const cfg   = S.settings;
     const half  = calendarHalf(today);
@@ -676,9 +931,92 @@ const DEFAULTS = {
     $('#input-fuel').value=S.fuel;
   }
 
-  function refresh() { syncBalance(); syncSettings(); renderDashboard(); renderBillsTable(); renderSchedule(); }
+  function refresh() { syncBalance(); syncSettings(); renderWeek(); renderDashboard(); renderBillsTable(); renderSchedule(); }
 
   $$('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>showView(btn.dataset.view)));
+
+  // ── Week view interactions ───────────────────────────────────
+  // Toggle this week / next week for meals
+  document.querySelectorAll('.meals-week-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      mealsWeekOffset = btn.dataset.week === 'nxt' ? 1 : 0;
+      document.querySelectorAll('.meals-week-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+      renderMealsStrip();
+    });
+  });
+
+  // Edit a meal inline (commit on blur or Enter)
+  document.getElementById('meals-strip').addEventListener('focusout', async (ev) => {
+    const inp = ev.target;
+    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('meal-name-input')) return;
+    const date = inp.dataset.date;
+    const newName = inp.value.trim();
+    const existing = S.meals.find(m => m.date === date);
+
+    if (!newName) {
+      // Empty → delete the meal row if it existed
+      if (existing) {
+        S.meals = S.meals.filter(m => m.id !== existing.id);
+        await deleteMealRow(existing.id);
+        renderToday();
+      }
+      return;
+    }
+
+    if (existing) {
+      if (existing.name === newName) return; // no-op
+      existing.name = newName;
+      await saveMealRow(existing);
+    } else {
+      const meal = {
+        id: `meal-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        date,
+        name: newName,
+        notes: '',
+      };
+      S.meals.push(meal);
+      await saveMealRow(meal);
+    }
+    renderToday();
+  });
+  document.getElementById('meals-strip').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.classList.contains('meal-name-input')) {
+      ev.preventDefault();
+      ev.target.blur();
+    }
+  });
+
+  // Add an event
+  document.getElementById('event-add-submit').addEventListener('click', async () => {
+    const dateEl  = document.getElementById('event-add-date');
+    const titleEl = document.getElementById('event-add-title');
+    const notesEl = document.getElementById('event-add-notes');
+    const date  = dateEl.value;
+    const title = titleEl.value.trim();
+    const notes = notesEl.value.trim();
+    if (!date || !title) { alert('Pick a date and add a title.'); return; }
+    const ev = {
+      id: `event-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+      date, title, notes,
+    };
+    S.events.push(ev);
+    await saveEventRow(ev);
+    titleEl.value = '';
+    notesEl.value = '';
+    renderUpcomingEvents();
+    renderToday();
+  });
+
+  // Delete an event
+  document.getElementById('events-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.event-del');
+    if (!btn) return;
+    const id = btn.dataset.eventId;
+    S.events = S.events.filter(e => e.id !== id);
+    await deleteEventRow(id);
+    renderUpcomingEvents();
+    renderToday();
+  });
 
   $('#input-balance').addEventListener('input', async function() { S.balance=this.value; await save(); renderDashboard(); });
   $('#input-misc-income').addEventListener('input', async function() { S.miscIncome=this.value; await save(); renderDashboard(); });

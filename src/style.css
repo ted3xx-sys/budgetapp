@@ -1,26 +1,27 @@
 :root {
-  /* ── Palette ── */
-  --bg:          #060810;
-  --surface:     #0c0e1a;
-  --surface2:    #11142200;
-  --surface3:    #181c30;
-  --border:      #1c2038;
-  --border-hi:   #2e3460;
-  --text:        #e2e8f5;
-  --muted:       #556080;
-  --muted-hi:    #8892b0;
-  --accent:      #818cf8;
-  --accent-dim:  #312e81;
-  --accent-glow: rgba(129,140,248,.13);
-  --green:       #34d399;
+  /* ── Palette: monochrome black / white + cool slate-blue accent ── */
+  --bg:          #080808;
+  --surface:     #111111;
+  --surface2:    #15151500;
+  --surface3:    #1a1a1a;
+  --border:      #1f1f1f;
+  --border-hi:   #2d2d2d;
+  --text:        #fafafa;
+  --muted:       #6b6b6b;
+  --muted-hi:    #9c9c9c;
+  --accent:      #5b8def;
+  --accent-dim:  #1e3a5f;
+  --accent-glow: rgba(91,141,239,.10);
+  --green:       #4ade80;
   --green-dim:   #052e1e;
-  --green-glow:  rgba(52,211,153,.1);
-  --amber:       #fbbf24;
+  --green-glow:  rgba(74,222,128,.08);
+  --amber:       #f59e0b;
   --amber-dim:   #181000;
-  --amber-glow:  rgba(251,191,36,.1);
-  --red:         #f87171;
+  --amber-glow:  rgba(245,158,11,.08);
+  --red:         #ef4444;
   --red-dim:     #2d0a0a;
-  --red-glow:    rgba(248,113,113,.1);
+  --red-glow:    rgba(239,68,68,.08);
+  --ink:         #fafafa; /* alias for older usage */
   --radius:      12px;
   --radius-sm:   7px;
   --mono:        'JetBrains Mono', monospace;
@@ -37,7 +38,7 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(129,140,248,.07), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91,141,239,.05), transparent);
 }
 
 .app { max-width: 1200px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
@@ -223,7 +224,7 @@ body {
   justify-content: space-between;
   gap: 0.75rem 2rem;
   padding: 0.85rem 1.4rem;
-  background: rgba(129,140,248,.04);
+  background: rgba(91,141,239,.04);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
@@ -292,10 +293,10 @@ body {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
-.tag.payday   { background: rgba(129,140,248,.12); color: #a5b0ff; border: 1px solid rgba(129,140,248,.25); }
+.tag.payday   { background: rgba(91,141,239,.12); color: #a5b0ff; border: 1px solid rgba(91,141,239,.25); }
 .tag.instapay { background: rgba(251,191,36,.1);  color: #fcd34d; border: 1px solid rgba(251,191,36,.2); }
 .tag.wife     { background: rgba(52,211,153,.1);  color: #6ee7b7; border: 1px solid rgba(52,211,153,.2); }
-.tag.recurring { background: rgba(129,140,248,.08); color: var(--accent); border: 1px solid rgba(129,140,248,.18); }
+.tag.recurring { background: rgba(91,141,239,.08); color: var(--accent); border: 1px solid rgba(91,141,239,.18); }
 .tag.autodraft { background: rgba(52,211,153,.08); color: var(--green); border: 1px solid rgba(52,211,153,.18); }
 .tag.overdue  { background: var(--red-glow); color: var(--red); border: 1px solid rgba(248,113,113,.25); }
 
@@ -364,7 +365,7 @@ body {
 .flow-table .cleared-check:checked {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(129,140,248,.3);
+  box-shadow: 0 0 8px rgba(91,141,239,.3);
 }
 .flow-table .cleared-check:checked::after {
   content: '✓'; position: absolute; top: 50%; left: 50%;
@@ -493,9 +494,9 @@ body {
 /* ── Misc ── */
 code {
   font-family: var(--mono); font-size: 0.8em;
-  background: rgba(129,140,248,.1); color: var(--accent);
+  background: rgba(91,141,239,.1); color: var(--accent);
   padding: 0.1rem 0.4rem; border-radius: 4px;
-  border: 1px solid rgba(129,140,248,.18);
+  border: 1px solid rgba(91,141,239,.18);
 }
 .boot-error { padding: 0.9rem 1.4rem; background: rgba(248,113,113,.08); color: #fca5a5; font-size: 0.88rem; border-bottom: 1px solid rgba(248,113,113,.2); display: none; }
 .boot-error.visible { display: block; }
@@ -554,4 +555,4 @@ input[type=number] { font-family: var(--mono); }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 /* ── Selection ── */
-::selection { background: rgba(129,140,248,.25); color: var(--text); }
+::selection { background: rgba(91,141,239,.25); color: var(--text); }
