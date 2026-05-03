@@ -142,6 +142,16 @@ body {
   color: var(--muted);
   margin-bottom: 1.1rem;
 }
+/* Two-line variant: top span = main heading, .card-subtitle = scope/range below */
+.card-title .card-subtitle {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--muted-hi);
+  margin-top: 0.3rem;
+}
 .hint { font-size: 0.82rem; color: var(--muted-hi); line-height: 1.65; }
 
 /* ── Hero row ── */
@@ -201,6 +211,7 @@ body {
 .hero-card.warn   .hero-value { color: var(--amber); text-shadow: 0 0 24px rgba(251,191,36,.3); }
 .hero-card.danger .hero-value { color: var(--red);   text-shadow: 0 0 24px rgba(248,113,113,.3); }
 .hero-sub { font-size: 0.74rem; color: var(--muted); margin-top: 0.5rem; letter-spacing: 0.01em; }
+.hero-sub > div { line-height: 1.55; }
 
 /* ── Balance card inputs ── */
 .bal-wrap { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 1rem; }
@@ -328,7 +339,7 @@ body {
 .tag.instapay { background: rgba(251,191,36,.1);  color: #fcd34d; border: 1px solid rgba(251,191,36,.2); }
 .tag.wife     { background: rgba(52,211,153,.1);  color: #6ee7b7; border: 1px solid rgba(52,211,153,.2); }
 .tag.recurring { background: rgba(91,141,239,.08); color: var(--accent); border: 1px solid rgba(91,141,239,.18); }
-.tag.autodraft { background: rgba(52,211,153,.08); color: var(--green); border: 1px solid rgba(52,211,153,.18); }
+.tag.autodraft { background: rgba(245,158,11,.08); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
 .tag.overdue  { background: var(--red-glow); color: var(--red); border: 1px solid rgba(248,113,113,.25); }
 
 /* ── Event list (pay schedule) ── */

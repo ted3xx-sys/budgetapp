@@ -476,11 +476,9 @@ const DEFAULTS = {
     timeline.forEach(item=>{
       const past = today && sod(item.date)<sod(today);
       const alpha = 'opacity:.45;';
-      const adTag = item.autodraft?'<span class="tag autodraft" style="margin-left:0.3rem">auto</span>':'';
+      const adTag = item.autodraft?'<span class="tag autodraft" title="Autodraft" style="margin-left:0.3rem">A</span>':'';
 
       if(item.type==='income') {
-        // Past income: already in bank — show for reference only, don't move running
-        // Cleared income: user marked as already in bank — same treatment as past
         const cleared = interactive && !!S.clearedIncome[item.key];
         const effectivePast = past || cleared;
         if(!effectivePast) running+=item.amount;
@@ -491,12 +489,13 @@ const DEFAULTS = {
           ? `<input type="checkbox" class="cleared-check" data-key="${item.key}" ${cleared?'checked':''} title="Check if this paycheck already cleared and is sitting in your bank balance" />`
           : '';
         const clearedTag = cleared
-          ? '<span class="tag" style="background:rgba(91,141,239,.1);color:var(--accent);border:1px solid rgba(91,141,239,.25);margin-left:0.3rem">in bank</span>'
+          ? '<span class="tag" title="Already in bank balance" style="background:rgba(91,141,239,.1);color:var(--accent);border:1px solid rgba(91,141,239,.25);margin-left:0.3rem">✓</span>'
           : '';
         const incDim = effectivePast ? alpha : '';
         const metaText = cleared ? ' · in bank' : past ? ' · past' : '';
+        // Pill carries the type label (Salary / Payday / Instapay) — no duplicate text after it.
         tbody.appendChild(makeRow(`
-          <td><div class="row-name" style="${incDim}"><span style="display:inline-flex;align-items:center">${clearedCheck}${tagHtml(item.tag)}</span> ${esc(item.label)}${clearedTag}</div>
+          <td><div class="row-name" style="${incDim}"><span style="display:inline-flex;align-items:center">${clearedCheck}${tagHtml(item.tag)}</span>${clearedTag}</div>
               <div class="row-meta">${fmtLong(item.date)}${metaText}</div></td>
           <td class="amt pos" style="${incDim}">${effectivePast?'':'+'}${money(item.amount)}</td>
           ${runCell}`));
@@ -515,11 +514,11 @@ const DEFAULTS = {
         const paidCheck = interactive
           ? `<input type="checkbox" class="paid-check" data-bkey="${item.bkey}" data-past="${past?'1':'0'}" ${isChecked?'checked':''} title="${past?'Uncheck if bill hasn\'t pulled yet':'Mark as paid'}" />`
           : '';
-        const overTag = item.hasOverride ? '<span class="tag" style="background:rgba(251,191,36,.1);color:var(--amber);border:1px solid rgba(251,191,36,.25);margin-left:0.3rem">adj</span>' : '';
+        const overTag = item.hasOverride ? '<span class="tag" title="Adjusted from default" style="background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25);margin-left:0.3rem">±</span>' : '';
         const statusTag = !past && isChecked
-          ? '<span class="tag" style="background:rgba(52,211,153,.1);color:var(--green);border:1px solid rgba(52,211,153,.2);margin-left:0.3rem">paid</span>'
+          ? '<span class="tag" title="Paid" style="background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.2);margin-left:0.3rem">✓</span>'
           : past && !isChecked
-          ? '<span class="tag" style="background:rgba(251,191,36,.1);color:var(--amber);border:1px solid rgba(251,191,36,.25);margin-left:0.3rem">pending</span>'
+          ? '<span class="tag" title="Pending — bill has not pulled yet" style="background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25);margin-left:0.3rem">P</span>'
           : '';
 
         // Running total: cleared past bills show "—", everything else shows the number
@@ -836,31 +835,48 @@ const DEFAULTS = {
     $('#period-income').textContent = money(incTotal);
     $('#period-bills-total').textContent = money(billsTotal);
 
+    // Helper: render a list of bullet lines into a sub-text element.
+    const renderBullets = (id, lines) =>
+      $(`#${id}`).innerHTML = lines.map(l => `<div>• ${l}</div>`).join('');
+
     // Hero: bills remaining
     const bc = $('#hero-bills-card');
     const paidEarlyCount = billsFuture.filter(({bill,date})=>S.paidBills[bill.id+'-'+toIso(date)]).length;
     const pastNotCleared = billsPast.filter(({bill,date})=>S.unpaidBills[bill.id+'-'+toIso(date)]).length;
     const totalUnpaid = (billsFuture.length - paidEarlyCount) + pastNotCleared;
     $('#hero-bills-left').textContent = money(billsRemain);
-    const parts = [`${totalUnpaid} unpaid`];
-    if (paidEarlyCount) parts.push(`${paidEarlyCount} paid early`);
-    if (pastNotCleared) parts.push(`${pastNotCleared} pending`);
-    parts.push(`${billsPast.length - pastNotCleared} cleared`);
-    $('#hero-bills-sub').textContent = parts.join(' · ');
+    const billsLines = [
+      `${totalUnpaid} unpaid`,
+      `${pastNotCleared} pending`,
+      `${billsPast.length - pastNotCleared} cleared`,
+    ];
+    if (paidEarlyCount) billsLines.push(`${paidEarlyCount} paid early`);
+    renderBullets('hero-bills-sub', billsLines);
     bc.className = 'hero-card' + (billsRemain > start+incRemain*0.8 ? ' danger' : billsRemain > 500 ? ' warn' : '');
 
-    // Hero: safe to spend
+    // Hero: safe to spend (DRY — same dip-flag logic the Week page uses)
     const sc = $('#hero-safe-card');
+    const snap = runningBalanceAt(to);
+    const dippedNegative = snap.minRunning < 0;
     $('#hero-safe').textContent = money(safeToSpend);
-    if (safeToSpend<=0) {
-      sc.className='hero-card danger';
-      $('#hero-safe-sub').textContent='Short — review income & bills';
-    } else if (safeToSpend<150) {
-      sc.className='hero-card warn';
-      $('#hero-safe-sub').textContent='Running tight';
+    if (dippedNegative) {
+      sc.className = 'hero-card danger';
+      renderBullets('hero-safe-sub', [
+        `⚠ Dips to ${money(snap.minRunning)}`,
+        `on ${fmtShort(snap.minDate)}`,
+      ]);
+    } else if (safeToSpend <= 0) {
+      sc.className = 'hero-card danger';
+      renderBullets('hero-safe-sub', ['Short — review income & bills']);
+    } else if (safeToSpend < 150) {
+      sc.className = 'hero-card warn';
+      renderBullets('hero-safe-sub', ['Running tight']);
     } else {
-      sc.className='hero-card safe';
-      $('#hero-safe-sub').textContent=`${totalUnpaid} bills + ${incFuture.length} paychecks remaining`;
+      sc.className = 'hero-card safe';
+      renderBullets('hero-safe-sub', [
+        `${totalUnpaid} bills remaining`,
+        `${incFuture.length} paychecks remaining`,
+      ]);
     }
 
     // Hero: paychecks pending (future uncleared income)
@@ -868,12 +884,13 @@ const DEFAULTS = {
     const clearedIncCount = incFuture.length - pendingInc.length;
     const pendingIncTotal = pendingInc.reduce((s,e)=>s+e.amount,0);
     $('#hero-income-pending').textContent = money(pendingIncTotal);
-    const incParts = [`${pendingInc.length} check${pendingInc.length!==1?'s':''} pending`];
-    if (clearedIncCount) incParts.push(`${clearedIncCount} in bank`);
-    $('#hero-income-sub').textContent = incParts.join(' · ');
+    const incLines = [`${pendingInc.length} check${pendingInc.length!==1?'s':''} pending`];
+    if (clearedIncCount) incLines.push(`${clearedIncCount} in bank`);
+    renderBullets('hero-income-sub', incLines);
 
     // ── Current half cashflow ──
-    $('#flow-title').textContent = `Running cashflow — ${half.label} (${fmtShort(from)} – ${fmtShort(to)})`;
+    $('#flow-title').innerHTML =
+      `<span>Running cashflow</span><span class="card-subtitle">▸ ${half.label} (${fmtShort(from)} – ${fmtShort(to)})</span>`;
     const endingBal = buildCashflow(
       $('#flow-tbody'), start, incEvents, curBills, today, true
     );
@@ -893,7 +910,8 @@ const DEFAULTS = {
     const nxtIncTotal  = nxtInc.reduce((s,e)=>s+e.amount,0);
     const nxtBillTotal = nxtBills.reduce((s,{bill})=>s+(Number(bill.amount)||0),0);
 
-    $('#lookahead-title').textContent = `Look-ahead — ${nxt.label} (${fmtShort(nxt.start)} – ${fmtShort(nxt.end)})`;
+    $('#lookahead-title').innerHTML =
+      `<span>Look-ahead</span><span class="card-subtitle">▸ ${nxt.label} (${fmtShort(nxt.start)} – ${fmtShort(nxt.end)})</span>`;
     const nxtEnding = buildCashflow(
       $('#lookahead-tbody'), endingBal, nxtInc, nxtBills, null
     );
@@ -1000,7 +1018,7 @@ const DEFAULTS = {
       if (e.kind === 'wife') {
         li.innerHTML=`
           <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)} <span>${esc(e.label)}</span></span>
+            <span class="ev-labels">${tagHtml(e.kind)}</span>
             <span class="ev-meta">${fmtLong(e.date)}</span>
           </span>
           <span class="ev-amt">${money(e.amount)}</span>`;
@@ -1014,7 +1032,7 @@ const DEFAULTS = {
 
         li.innerHTML=`
           <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)} <span>${esc(e.label)}</span> <span class="tag" style="background:#1a2a3a;color:var(--accent);border:1px solid var(--accent2)">next up</span></span>
+            <span class="ev-labels">${tagHtml(e.kind)} <span class="tag" style="background:var(--accent-glow);color:var(--accent);border:1px solid var(--border-hi)">next up</span></span>
             <span class="ev-meta">${fmtLong(e.date)}${hasOverride ? ' · overridden' : ' · editable'}</span>
           </span>
           <input type="number" class="override-input${overrideCls}" data-key="${e.key}"
@@ -1024,7 +1042,7 @@ const DEFAULTS = {
       } else {
         li.innerHTML=`
           <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)} <span>${esc(e.label)}</span></span>
+            <span class="ev-labels">${tagHtml(e.kind)}</span>
             <span class="ev-meta">${fmtLong(e.date)}</span>
           </span>
           <span class="ev-amt">${money(e.amount)}</span>`;
