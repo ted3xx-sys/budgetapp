@@ -1081,7 +1081,7 @@ const DEFAULTS = {
     });
   });
 
-  // Meal cell: commit on blur, auto-grow on input, Enter blurs / Shift+Enter newline
+  // Meal cell: commit on blur, auto-grow on input. Enter inserts a newline.
   const stripEl = document.getElementById('meals-strip');
 
   stripEl.addEventListener('focusout', async (ev) => {
@@ -1117,15 +1117,6 @@ const DEFAULTS = {
 
   stripEl.addEventListener('input', (ev) => {
     if (ev.target.classList.contains('meal-name-input')) autoResizeTextarea(ev.target);
-  });
-
-  stripEl.addEventListener('keydown', (ev) => {
-    if (!ev.target.classList.contains('meal-name-input')) return;
-    // Plain Enter commits (blurs). Shift+Enter inserts a newline (default).
-    if (ev.key === 'Enter' && !ev.shiftKey) {
-      ev.preventDefault();
-      ev.target.blur();
-    }
   });
 
   // Add an event
