@@ -700,8 +700,7 @@ const DEFAULTS = {
           <div class="meal-day">${dayLabels[i]}</div>
           <div class="meal-date">${d.getMonth()+1}/${d.getDate()}</div>
           <textarea class="meal-name-input" data-date="${iso}" rows="1" placeholder="—"
-            enterkeyhint="enter" autocorrect="off" autocapitalize="sentences"
-            spellcheck="false">${esc(meal?.name || '')}</textarea>
+            enterkeyhint="enter" spellcheck="false">${esc(meal?.name || '')}</textarea>
         </div>
       `);
     }
@@ -1118,6 +1117,20 @@ const DEFAULTS = {
 
   stripEl.addEventListener('input', (ev) => {
     if (ev.target.classList.contains('meal-name-input')) autoResizeTextarea(ev.target);
+  });
+
+  // Force Enter to insert a newline. iOS otherwise lets the QuickType
+  // bar / autocorrect intercept Return; saving happens on blur (the
+  // iOS keyboard toolbar checkmark, or tapping away).
+  stripEl.addEventListener('keydown', (ev) => {
+    const ta = ev.target;
+    if (!(ta instanceof HTMLTextAreaElement) || !ta.classList.contains('meal-name-input')) return;
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    ta.setRangeText('\n', start, end, 'end');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
   // Add an event
