@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gloodt Home Planner</title>
   <!-- PWA -->
-  <link rel="icon" type="image/svg+xml" href="icon.svg?v=ghp">
-  <link rel="apple-touch-icon" href="icon-192.png?v=ghp">
+  <link rel="icon" type="image/svg+xml" href="icon.svg?v=ghp2">
+  <link rel="apple-touch-icon" href="icon-192.png?v=ghp2">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -372,27 +372,6 @@
 
       <!-- ═══ BILLS sub-view ═══════════════════════════ -->
       <div id="sub-bills" class="sub-view">
-      <div class="card mt">
-        <div class="card-title">🧾 Bills</div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th style="min-width:8rem">Name</th>
-                <th style="min-width:5rem">Amount ($)</th>
-                <th class="center" style="width:5rem">Recurring</th>
-                <th style="min-width:7rem">Due / Day</th>
-                <th class="center" style="width:5rem">Autodraft</th>
-                <th style="min-width:8rem">Category</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="bills-tbody"></tbody>
-          </table>
-        </div>
-        <button type="button" id="btn-add-bill" class="btn ghost">+ Add bill</button>
-      </div>
-
       <div class="card totals mt">
         <div class="card-title">📊 Monthly totals</div>
         <div class="cat-totals-grid" id="cat-totals" style="margin-bottom:1.25rem"></div>
@@ -415,6 +394,28 @@
           </div>
         </dl>
       </div>
+
+      <div class="card mt">
+        <div class="card-title">🧾 Bills</div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="min-width:8rem">Name</th>
+                <th style="min-width:5rem">Amount ($)</th>
+                <th class="center" style="width:5rem">Recurring</th>
+                <th style="min-width:7rem">Due / Day</th>
+                <th class="center" style="width:5rem">Autodraft</th>
+                <th style="min-width:8rem">Category</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="bills-tbody"></tbody>
+          </table>
+        </div>
+        <button type="button" id="btn-add-bill" class="btn ghost">+ Add bill</button>
+      </div>
+
       </div><!-- end #sub-bills -->
 
       <!-- ═══ SCHEDULE sub-view ════════════════════════ -->
