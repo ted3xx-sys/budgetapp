@@ -37,13 +37,25 @@
 <div class="app" style="visibility:hidden">
   <header class="header">
     <div class="header-top">
-      <div class="logo">Gloodt Home Planner</div>
+      <div class="brand-lockup">
+        <span class="brand-mark">G</span>
+        <span>
+          <span class="logo">Gloodt</span>
+          <span class="logo-sub">Home Planner</span>
+        </span>
+      </div>
+      <div class="header-actions">
+        <nav class="nav">
+          <button type="button" class="nav-btn is-active" data-view="week">Home</button>
+          <button type="button" class="nav-btn" data-view="budget">Budget</button>
+          <button type="button" class="nav-btn" data-view="settings">Settings</button>
+        </nav>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch color theme">
+          <span id="theme-toggle-icon">☾</span>
+          <span id="theme-toggle-label">Dark</span>
+        </button>
+      </div>
     </div>
-    <nav class="nav">
-      <button type="button" class="nav-btn is-active" data-view="week">Week</button>
-      <button type="button" class="nav-btn" data-view="budget">Budget</button>
-      <button type="button" class="nav-btn" data-view="settings">Settings</button>
-    </nav>
   </header>
 
   <main>
@@ -51,49 +63,135 @@
     <!-- ═══ WEEK (front door) ══════════════════════════ -->
     <section id="view-week" class="view is-active">
 
-      <!-- Today -->
-      <div class="card">
-        <div class="card-title" id="today-title">📅 Today</div>
-        <div id="today-content"></div>
-      </div>
-
-      <!-- Snapshot tiles -->
-      <div class="hero-grid" style="margin-top:1rem;grid-template-columns:1fr 1fr">
-        <div class="hero-card" id="snapshot-now-card">
-          <div class="hero-label">💰 Available Now</div>
-          <div class="hero-value" id="snapshot-now">—</div>
-          <div class="hero-sub" id="snapshot-now-sub"></div>
+      <div class="workspace-head">
+        <div>
+          <div class="workspace-kicker">Home base · this week</div>
+          <h1 id="home-greeting">Good morning.</h1>
+          <div class="workspace-date" id="ambient-date">Loading today…</div>
         </div>
-        <div class="hero-card" id="snapshot-next-card">
-          <div class="hero-label" id="snapshot-next-label"><span>📈 Available</span><span class="hero-label-sub">(7 Days Out)</span></div>
-          <div class="hero-value" id="snapshot-next">—</div>
-          <div class="hero-sub" id="snapshot-next-sub"></div>
+        <div class="weather-card" id="weather-card">
+          <div class="weather-icon" id="weather-icon">◌</div>
+          <div class="weather-copy">
+            <div><span class="weather-temp" id="weather-temp">—°</span> <span id="weather-desc">Checking Nevada…</span></div>
+            <div class="weather-meta" id="weather-meta">Nevada, Missouri</div>
+          </div>
+          <div class="ambient-time" id="ambient-time">--:--</div>
         </div>
       </div>
 
-      <!-- Meals -->
-      <div class="card mt">
-        <div class="card-title meals-header">
-          <span id="meals-title">🍽 Meals — this week</span>
-          <div class="meals-week-toggle">
-            <button type="button" class="chip-btn meals-week-btn is-active" data-week="cur">This week</button>
-            <button type="button" class="chip-btn meals-week-btn" data-week="nxt">Next week</button>
+      <div class="home-flow">
+        <section class="card today-card home-today">
+          <div class="card-title" id="today-title">Today</div>
+          <div id="today-content"></div>
+        </section>
+
+        <div class="money-stat-grid">
+          <div class="money-stat" id="snapshot-now-card">
+            <div class="hero-label">Available now</div>
+            <div class="hero-value" id="snapshot-now">—</div>
+            <div class="hero-sub" id="snapshot-now-sub"></div>
+          </div>
+          <div class="money-stat" id="snapshot-next-card">
+            <div class="hero-label" id="snapshot-next-label"><span>Seven days out</span></div>
+            <div class="hero-value" id="snapshot-next">—</div>
+            <div class="hero-sub" id="snapshot-next-sub"></div>
           </div>
         </div>
-        <div id="meals-strip"></div>
-      </div>
 
-      <!-- Upcoming events -->
-      <div class="card mt">
-        <div class="card-title">📌 Upcoming</div>
-        <ul id="events-list" class="event-list"></ul>
-        <div id="event-add-form" class="event-add-form">
-          <input type="date" id="event-add-date" />
-          <input type="time" id="event-add-time" />
-          <input type="text" id="event-add-title" placeholder="Title (e.g. Kid dentist)" />
-          <input type="text" id="event-add-notes" placeholder="Notes (optional)" />
-          <button type="button" class="chip-btn chip-primary" id="event-add-submit">Add</button>
-        </div>
+        <section class="card chart-card">
+          <div class="card-title chart-heading">
+            <span>Money pulse</span>
+            <span class="card-subtitle">This week + next week</span>
+          </div>
+          <div id="cashflow-chart" class="cashflow-chart" aria-label="Projected cashflow over the next fourteen days"></div>
+        </section>
+
+        <section class="card meals-card">
+          <div class="card-title meals-header">
+            <span id="meals-title">Dinner menu — this week</span>
+            <div class="meals-week-toggle">
+              <button type="button" class="chip-btn meals-week-btn is-active" data-week="cur">This week</button>
+              <button type="button" class="chip-btn meals-week-btn" data-week="nxt">Next week</button>
+            </div>
+          </div>
+          <div id="meals-strip"></div>
+        </section>
+
+        <section class="card lists-card">
+          <div class="lists-card-head">
+            <div>
+              <div class="panel-kicker">Shared space</div>
+              <div class="card-title">Shopping &amp; to-do lists</div>
+              <div class="lists-intro">Create a checklist, save it here, then reopen it anytime to check things off or make changes.</div>
+            </div>
+            <button type="button" class="chip-btn chip-primary" id="new-list-toggle" aria-label="Create a new list">＋ New list</button>
+          </div>
+
+          <div class="new-list-form" id="new-list-form" hidden>
+            <div class="draft-list-head">
+              <div>
+                <div class="panel-kicker">New list draft</div>
+                <div class="draft-list-title">Build it first. Save it to the deck when it is ready.</div>
+              </div>
+              <span class="draft-unsaved">Not saved yet</span>
+            </div>
+
+            <label class="editor-label" for="new-list-title">List title</label>
+            <input type="text" id="new-list-title" placeholder="Give your list a title…" maxlength="80" />
+            <label class="editor-label" for="new-list-notes">Note <span>(optional)</span></label>
+            <textarea id="new-list-notes" rows="2" placeholder="Anything the household should know…"></textarea>
+
+            <div class="list-items-heading">Starter items</div>
+            <ul id="draft-list-items" class="list-items draft-list-items"></ul>
+            <div class="list-item-add">
+              <input type="text" id="draft-list-item-new" placeholder="Add an item to this draft…" maxlength="160" />
+              <button type="button" class="icon-btn" id="draft-list-item-add" aria-label="Add draft item">＋</button>
+            </div>
+
+            <div class="draft-list-actions">
+              <button type="button" class="chip-btn" id="new-list-cancel">Cancel</button>
+              <button type="button" class="chip-btn chip-primary save-to-deck" id="new-list-create">Save to deck</button>
+            </div>
+          </div>
+
+          <div class="lists-workspace">
+            <div class="list-library-pane">
+              <div class="pane-title">Saved list log</div>
+              <div id="saved-lists" class="saved-lists"></div>
+            </div>
+
+            <div class="list-editor-pane">
+              <div id="list-editor-empty" class="list-editor-empty">
+                <span class="empty-orbit">◎</span>
+                <strong>Create your first list</strong>
+                <span>Use “New list” above. Once saved, it will appear in your saved-list log.</span>
+              </div>
+              <div id="list-editor" hidden>
+                <div class="list-editor-head">
+                  <div>
+                    <div class="panel-kicker">Open list</div>
+                    <div class="list-progress" id="list-progress">0 of 0 complete</div>
+                  </div>
+                  <button type="button" class="text-btn danger-text" id="list-delete">Delete list</button>
+                </div>
+
+                <label class="editor-label" for="list-title-edit">Title</label>
+                <input type="text" class="editor-title" id="list-title-edit" maxlength="80" />
+                <label class="editor-label" for="list-notes-edit">Note <span>(optional)</span></label>
+                <textarea class="editor-notes" id="list-notes-edit" rows="2" placeholder="Anything the household should know…"></textarea>
+                <button type="button" class="text-btn" id="list-save-meta">Save title &amp; note</button>
+
+                <div class="list-items-heading">Items</div>
+                <ul id="list-items" class="list-items"></ul>
+                <div class="list-item-add">
+                  <input type="text" id="list-item-new" placeholder="Add an item…" maxlength="160" />
+                  <button type="button" class="icon-btn" id="list-item-add" aria-label="Add item">＋</button>
+                </div>
+                <div class="autosave-hint">Items save automatically when you add, edit, or check them off.</div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
     </section>
@@ -109,65 +207,90 @@
 
       <div id="sub-overview" class="sub-view is-active">
 
-      <div class="hero-grid">
-        <div class="hero-card">
-          <div class="hero-label">Amount in bank</div>
-          <div class="bal-wrap">
-            <span class="bal-prefix">$</span>
-            <input id="input-balance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" />
-          </div>
-          <div class="sub-row">
-            <div>
-              <div class="sub-lbl">Misc income</div>
-              <input id="input-misc-income" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
-            </div>
-            <div>
-              <div class="sub-lbl">Misc expense</div>
-              <input id="input-misc-expense" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
-            </div>
-            <div>
-              <div class="sub-lbl">Groceries</div>
-              <input id="input-groceries" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
-            </div>
-            <div>
-              <div class="sub-lbl">Fuel</div>
-              <input id="input-fuel" class="sub-inp" type="number" inputmode="decimal" step="0.01" placeholder="0.00" />
-            </div>
-          </div>
+      <div class="budget-overview-head">
+        <div>
+          <div class="workspace-kicker">Household finances</div>
+          <h1>Money overview</h1>
+          <div class="workspace-date">A visual read first. Detailed cashflow is below when you need it.</div>
         </div>
-
-        <div class="hero-card" id="hero-bills-card">
-          <div class="hero-label">Bills left this half</div>
-          <div class="hero-value" id="hero-bills-left">—</div>
-          <div class="hero-sub" id="hero-bills-sub"></div>
-        </div>
-
-        <div class="hero-card" id="hero-safe-card">
-          <div class="hero-label">Safe to spend</div>
-          <div class="hero-value" id="hero-safe">—</div>
-          <div class="hero-sub" id="hero-safe-sub"></div>
-        </div>
-
-        <div class="hero-card" id="hero-income-card">
-          <div class="hero-label">Paychecks pending</div>
-          <div class="hero-value" id="hero-income-pending">—</div>
-          <div class="hero-sub" id="hero-income-sub"></div>
+        <div class="cycle-chip">
+          <span id="cycle-label">Current half</span>
+          <strong id="cycle-range">—</strong>
         </div>
       </div>
 
-      <div class="period-bar">
+      <div class="finance-dashboard">
+        <section class="finance-card commitment-card" id="hero-bills-card">
+          <div class="finance-card-head">
+            <div>
+              <div class="panel-kicker">This half</div>
+              <h2>Income committed to bills</h2>
+            </div>
+            <span class="finance-status" id="budget-status">On track</span>
+          </div>
+          <div class="commitment-visual">
+            <div class="budget-ring" id="budget-ring">
+              <div class="budget-ring-center">
+                <strong id="period-bills-total">—</strong>
+                <span>total bills</span>
+              </div>
+            </div>
+            <div class="finance-legend">
+              <div><span class="legend-dot income-dot"></span><span>Income this half</span><strong id="period-income">—</strong></div>
+              <div><span class="legend-dot bills-dot"></span><span>Bills still due</span><strong id="hero-bills-left">—</strong></div>
+              <div class="legend-detail" id="hero-bills-sub"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="finance-card position-card" id="hero-safe-card">
+          <div class="finance-card-head">
+            <div>
+              <div class="panel-kicker">Cash position</div>
+              <h2>What is actually available</h2>
+            </div>
+          </div>
+          <div class="position-grid">
+            <label class="bank-balance-field">
+              <span>In the bank now</span>
+              <span class="bank-input-wrap"><span>$</span><input id="input-balance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" /></span>
+            </label>
+            <div class="position-metric primary-position">
+              <span>Uncommitted</span>
+              <strong id="hero-safe">—</strong>
+              <div id="hero-safe-sub"></div>
+            </div>
+            <div class="position-metric" id="hero-income-card">
+              <span>Income still coming</span>
+              <strong id="hero-income-pending">—</strong>
+              <div id="hero-income-sub"></div>
+            </div>
+          </div>
+          <div class="finance-bars">
+            <div><span>Income received / scheduled</span><i><b id="budget-income-bar"></b></i></div>
+            <div><span>Bills cleared / total</span><i><b id="budget-bills-bar"></b></i></div>
+          </div>
+        </section>
+
+        <section class="finance-card upcoming-summary-card">
+          <div class="finance-card-head">
+            <div>
+              <div class="panel-kicker">Action list</div>
+              <h2>Upcoming bills</h2>
+            </div>
+            <span class="finance-status neutral">Tap amount to adjust</span>
+          </div>
+          <div class="upcoming-bills-summary" id="upcoming-bills-summary"></div>
+          <div class="upcoming-help">Check a bill when it is paid early. Adjustments apply only to that occurrence.</div>
+        </section>
+      </div>
+
+      <div class="budget-section-heading">
         <div>
-          <div class="p-lbl" id="cycle-label">Current half</div>
-          <div class="p-val" id="cycle-range">—</div>
+          <div class="workspace-kicker">Full detail</div>
+          <h2>Cashflow timeline</h2>
         </div>
-        <div>
-          <div class="p-lbl">Income this period</div>
-          <div class="p-val" id="period-income">—</div>
-        </div>
-        <div>
-          <div class="p-lbl">Bills this period</div>
-          <div class="p-val" id="period-bills-total">—</div>
-        </div>
+        <span>Use this when you need the exact running balance.</span>
       </div>
 
       <div class="cashflow-grid">
@@ -186,13 +309,23 @@
           </table>
         </div>
         <div class="quick-add-wrap">
-          <button type="button" class="btn ghost qa-toggle" data-target="qa-form-cur" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
+          <div class="quick-add-actions">
+            <button type="button" class="btn ghost qa-toggle" data-target="qa-form-cur">＋ One-time bill</button>
+            <button type="button" class="btn ghost qa-toggle" data-target="payment-form-cur">＋ One-time payment</button>
+          </div>
           <div class="quick-add-form" id="qa-form-cur" style="display:none">
             <input type="text"   class="qa-inp name" id="qa-name-cur" placeholder="Bill name" />
             <input type="number" class="qa-inp amt"  id="qa-amt-cur"  placeholder="0.00" min="0" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="qa-date-cur" />
             <button type="button" class="btn qa-submit" data-half="cur">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="qa-form-cur">✕</button>
+          </div>
+          <div class="quick-add-form" id="payment-form-cur" style="display:none">
+            <input type="text"   class="qa-inp name" id="payment-name-cur" placeholder="Payment name" />
+            <input type="number" class="qa-inp amt"  id="payment-amt-cur"  placeholder="0.00" min="0" step="0.01" />
+            <input type="date"   class="qa-inp dat"  id="payment-date-cur" />
+            <button type="button" class="btn payment-submit" data-half="cur">Add</button>
+            <button type="button" class="btn ghost qa-cancel" data-target="payment-form-cur">✕</button>
           </div>
         </div>
       </div>
@@ -213,13 +346,23 @@
           </table>
         </div>
         <div class="quick-add-wrap">
-          <button type="button" class="btn ghost qa-toggle" data-target="qa-form-nxt" style="font-size:0.8rem;padding:0.35rem 0.85rem">＋ Quick add bill</button>
+          <div class="quick-add-actions">
+            <button type="button" class="btn ghost qa-toggle" data-target="qa-form-nxt">＋ One-time bill</button>
+            <button type="button" class="btn ghost qa-toggle" data-target="payment-form-nxt">＋ One-time payment</button>
+          </div>
           <div class="quick-add-form" id="qa-form-nxt" style="display:none">
             <input type="text"   class="qa-inp name" id="qa-name-nxt" placeholder="Bill name" />
             <input type="number" class="qa-inp amt"  id="qa-amt-nxt"  placeholder="0.00" min="0" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="qa-date-nxt" />
             <button type="button" class="btn qa-submit" data-half="nxt">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="qa-form-nxt">✕</button>
+          </div>
+          <div class="quick-add-form" id="payment-form-nxt" style="display:none">
+            <input type="text"   class="qa-inp name" id="payment-name-nxt" placeholder="Payment name" />
+            <input type="number" class="qa-inp amt"  id="payment-amt-nxt"  placeholder="0.00" min="0" step="0.01" />
+            <input type="date"   class="qa-inp dat"  id="payment-date-nxt" />
+            <button type="button" class="btn payment-submit" data-half="nxt">Add</button>
+            <button type="button" class="btn ghost qa-cancel" data-target="payment-form-nxt">✕</button>
           </div>
         </div>
       </div>
@@ -276,10 +419,29 @@
 
       <!-- ═══ SCHEDULE sub-view ════════════════════════ -->
       <div id="sub-schedule" class="sub-view">
-      <div class="card">
-        <div class="card-title">💵 Pay schedule</div>
-        <div class="sched-header"><span id="sched-wife-line"></span></div>
-        <ul id="list-schedule" class="event-list"></ul>
+      <div class="pay-schedule-layout">
+        <section class="card income-pattern-card">
+          <div class="panel-kicker">Income setup</div>
+          <div class="card-title">Default income</div>
+          <p class="hint">These amounts build the pay schedule and every projection throughout the app.</p>
+          <div class="settings-grid schedule-settings-grid">
+            <label>Salary default<input id="set-wife" type="number" min="0" step="0.01" /></label>
+            <label>Payday default<input id="set-payday" type="number" min="0" step="0.01" /></label>
+            <label>Instapay default<input id="set-instapay" type="number" min="0" step="0.01" /></label>
+          </div>
+          <div class="autosave-hint">Changes save automatically. The payday rotation stays anchored behind the scenes.</div>
+        </section>
+
+        <section class="card schedule-timeline-card">
+          <div class="finance-card-head">
+            <div>
+              <div class="panel-kicker">Next 35 days</div>
+              <div class="card-title">Pay schedule</div>
+            </div>
+            <span class="finance-status neutral" id="sched-wife-line"></span>
+          </div>
+          <ul id="list-schedule" class="schedule-list"></ul>
+        </section>
       </div>
       </div><!-- end #sub-schedule -->
 
@@ -288,18 +450,6 @@
     <!-- ═══ SETTINGS ═══════════════════════════════════ -->
     <section id="view-settings" class="view">
       <div class="card">
-        <div class="card-title">⚙️ Income defaults</div>
-        <div class="settings-grid">
-          <label>Wife weekly (Tuesdays)<input id="set-wife" type="number" min="0" step="0.01" /></label>
-          <label>Your payday default (Thu)<input id="set-payday" type="number" min="0" step="0.01" /></label>
-          <label>Your instapay default (Thu)<input id="set-instapay" type="number" min="0" step="0.01" /></label>
-          <div></div>
-          <label class="span-2">Anchor Thursday — first <code>payday</code> in the alternating pattern
-            <input id="set-anchor-thu" type="date" />
-          </label>
-        </div>
-      </div>
-      <div class="card mt">
         <div class="card-title">💾 Data</div>
         <div class="btn-row">
           <button type="button" id="btn-export" class="btn">Export JSON</button>

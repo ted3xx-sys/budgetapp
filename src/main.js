@@ -1,6 +1,9 @@
 import './style.css';
 import { supabase } from './supabaseClient.js';
 
+const savedTheme = localStorage.getItem('ghp-theme');
+document.documentElement.dataset.theme = savedTheme === 'light' ? 'light' : 'dark';
+
 // Tag for the shared household row. Security is enforced by Supabase RLS
 // (auth.uid() allowlist), not by this constant.
 const USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -56,11 +59,8 @@ async function waitForSession() {
 
 const DEFAULTS = {
   balance: 0,
-  miscIncome: 0,
-  miscExpense: 0,
-  groceries: 0,
-  fuel: 0,
   bills: [],
+  oneTimePayments: [],
   settings: {
     wifeWeekly: 0,
     husbandPayday: 0,
@@ -73,7 +73,8 @@ const DEFAULTS = {
   billOverrides: {},
   clearedIncome: {},
   meals: [],   // [{ id, date (YYYY-MM-DD), name, notes }]
-  events: [],  // [{ id, date (YYYY-MM-DD), title, notes }]
+  lists: [],   // [{ id, title, notes, createdAt, updatedAt }]
+  listItems: [], // [{ id, listId, text, completed, sortOrder, createdAt, updatedAt }]
 };
 
 (async function () {
@@ -85,34 +86,29 @@ const DEFAULTS = {
 
   let S = await loadState();
 
-  // Prune events that ended more than 3 days ago — keeps the list clean
-  // without the user having to remove them manually.
-  await pruneStaleEvents();
-  async function pruneStaleEvents() {
-    const cutoffIso = `${(d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date(Date.now() - 3 * 86400000))}`;
-    const stale = S.events.filter(e => e.date < cutoffIso);
-    if (!stale.length) return;
-    S.events = S.events.filter(e => e.date >= cutoffIso);
-    await Promise.all(stale.map(e => deleteEventRow(e.id)));
-  }
-
   async function loadState() {
     try {
       const [
         { data: settingsRow, error: sErr },
         { data: bills,       error: bErr },
         { data: meals,       error: mErr },
-        { data: events,      error: eErr },
+        { data: payments,    error: pErr },
+        { data: lists,       error: lErr },
+        { data: listItems,   error: liErr },
       ] = await Promise.all([
         supabase.from('settings').select('*').eq('user_id', USER_ID).maybeSingle(),
         supabase.from('bills').select('*').eq('user_id', USER_ID),
         supabase.from('meals').select('*').eq('user_id', USER_ID),
-        supabase.from('events').select('*').eq('user_id', USER_ID),
+        supabase.from('one_time_payments').select('*').eq('user_id', USER_ID),
+        supabase.from('shared_lists').select('*').eq('user_id', USER_ID),
+        supabase.from('shared_list_items').select('*').eq('user_id', USER_ID),
       ]);
       if (sErr) throw sErr;
       if (bErr) throw bErr;
       if (mErr) throw mErr;
-      if (eErr) throw eErr;
+      if (pErr) throw pErr;
+      if (lErr) throw lErr;
+      if (liErr) throw liErr;
 
       const s = clone(DEFAULTS);
 
@@ -122,10 +118,6 @@ const DEFAULTS = {
         s.settings.husbandInstapay      = Number(settingsRow.instapay_default) || 0;
         s.settings.anchorPaydayThursday = settingsRow.anchor_thursday || '';
         s.balance     = Number(settingsRow.balance) || 0;
-        s.miscIncome  = Number(settingsRow.misc_income) || 0;
-        s.miscExpense = Number(settingsRow.misc_expense) || 0;
-        s.groceries   = Number(settingsRow.groceries) || 0;
-        s.fuel        = Number(settingsRow.fuel) || 0;
         s.incomeOverrides = settingsRow.income_overrides || {};
         s.paidBills       = settingsRow.paid_bills || {};
         s.unpaidBills     = settingsRow.unpaid_bills || {};
@@ -156,13 +148,34 @@ const DEFAULTS = {
         }));
       }
 
-      if (events && events.length) {
-        s.events = events.map(e => ({
-          id:    e.id,
-          date:  e.event_date,
-          time:  e.event_time || '',
-          title: e.title || '',
-          notes: e.notes || '',
+      if (payments && payments.length) {
+        s.oneTimePayments = payments.map(payment => ({
+          id:          payment.id,
+          name:        payment.name || '',
+          amount:      payment.amount ?? '',
+          paymentDate: payment.payment_date || '',
+        }));
+      }
+
+      if (lists && lists.length) {
+        s.lists = lists.map(list => ({
+          id:        list.id,
+          title:     list.title || '',
+          notes:     list.notes || '',
+          createdAt: list.created_at || '',
+          updatedAt: list.updated_at || list.created_at || '',
+        }));
+      }
+
+      if (listItems && listItems.length) {
+        s.listItems = listItems.map(item => ({
+          id:        item.id,
+          listId:    item.list_id,
+          text:      item.item_text || '',
+          completed: !!item.is_completed,
+          sortOrder: Number(item.sort_order) || 0,
+          createdAt: item.created_at || '',
+          updatedAt: item.updated_at || item.created_at || '',
         }));
       }
 
@@ -175,8 +188,9 @@ const DEFAULTS = {
 
   async function save() {
     const billIds = S.bills.map(b => b.id);
+    const paymentIds = S.oneTimePayments.map(payment => payment.id);
 
-    const [{ error: sErr }, { error: bErr }] = await Promise.all([
+    const [{ error: sErr }, { error: bErr }, { error: pErr }] = await Promise.all([
       supabase.from('settings').upsert({
         user_id:            USER_ID,
         wife_weekly_income: S.settings.wifeWeekly,
@@ -184,10 +198,6 @@ const DEFAULTS = {
         instapay_default:   S.settings.husbandInstapay,
         anchor_thursday:    S.settings.anchorPaydayThursday,
         balance:            Number(S.balance) || 0,
-        misc_income:        Number(S.miscIncome) || 0,
-        misc_expense:       Number(S.miscExpense) || 0,
-        groceries:          Number(S.groceries) || 0,
-        fuel:               Number(S.fuel) || 0,
         income_overrides:   S.incomeOverrides,
         paid_bills:         S.paidBills,
         unpaid_bills:       S.unpaidBills,
@@ -208,19 +218,34 @@ const DEFAULTS = {
             is_autodraft: !!bill.autodraft,
           })))
         : Promise.resolve({ error: null }),
+      S.oneTimePayments.length
+        ? supabase.from('one_time_payments').upsert(S.oneTimePayments.map(payment => ({
+            id:           payment.id,
+            user_id:      USER_ID,
+            name:         payment.name || '',
+            amount:       Number(payment.amount) || 0,
+            payment_date: payment.paymentDate,
+          })))
+        : Promise.resolve({ error: null }),
     ]);
 
     if (sErr) console.error('save settings error:', sErr);
     if (bErr) console.error('save bills error:', bErr);
+    if (pErr) console.error('save one-time payments error:', pErr);
 
     // Delete any bills removed from the list
     const del = billIds.length
       ? supabase.from('bills').delete().eq('user_id', USER_ID).not('id', 'in', `(${billIds.join(',')})`)
       : supabase.from('bills').delete().eq('user_id', USER_ID);
     del.then(({ error }) => { if (error) console.error('delete bills error:', error); });
+
+    const paymentDel = paymentIds.length
+      ? supabase.from('one_time_payments').delete().eq('user_id', USER_ID).not('id', 'in', `(${paymentIds.join(',')})`)
+      : supabase.from('one_time_payments').delete().eq('user_id', USER_ID);
+    paymentDel.then(({ error }) => { if (error) console.error('delete one-time payments error:', error); });
   }
 
-  // ── Meals & events targeted save helpers (avoid round-tripping all bills) ──
+  // ── Meals & shared-list targeted save helpers ──────────────
   async function saveMealRow(meal) {
     const { error } = await supabase.from('meals').upsert({
       id:        meal.id,
@@ -235,20 +260,43 @@ const DEFAULTS = {
     const { error } = await supabase.from('meals').delete().eq('id', id);
     if (error) console.error('deleteMealRow error:', error);
   }
-  async function saveEventRow(ev) {
-    const { error } = await supabase.from('events').upsert({
-      id:         ev.id,
+  async function saveListRow(list) {
+    const now = new Date().toISOString();
+    list.updatedAt = now;
+    const { error } = await supabase.from('shared_lists').upsert({
+      id:         list.id,
       user_id:    USER_ID,
-      event_date: ev.date,
-      event_time: ev.time || null,
-      title:      ev.title || '',
-      notes:      ev.notes || '',
+      title:      list.title || '',
+      notes:      list.notes || '',
+      created_at: list.createdAt || now,
+      updated_at: now,
     });
-    if (error) console.error('saveEventRow error:', error);
+    if (error) console.error('saveListRow error:', error);
+    return !error;
   }
-  async function deleteEventRow(id) {
-    const { error } = await supabase.from('events').delete().eq('id', id);
-    if (error) console.error('deleteEventRow error:', error);
+  async function deleteListRow(id) {
+    const { error } = await supabase.from('shared_lists').delete().eq('id', id);
+    if (error) console.error('deleteListRow error:', error);
+  }
+  async function saveListItemRow(item) {
+    const now = new Date().toISOString();
+    item.updatedAt = now;
+    const { error } = await supabase.from('shared_list_items').upsert({
+      id:           item.id,
+      list_id:      item.listId,
+      user_id:      USER_ID,
+      item_text:    item.text || '',
+      is_completed: !!item.completed,
+      sort_order:   Number(item.sortOrder) || 0,
+      created_at:   item.createdAt || now,
+      updated_at:   now,
+    });
+    if (error) console.error('saveListItemRow error:', error);
+    return !error;
+  }
+  async function deleteListItemRow(id) {
+    const { error } = await supabase.from('shared_list_items').delete().eq('id', id);
+    if (error) console.error('deleteListItemRow error:', error);
   }
 
   function parseIso(s) { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
@@ -336,26 +384,49 @@ const DEFAULTS = {
       const idx = Math.round(diffDays(anchor,t)/7);
       const kind = idx%2===0?'payday':'instapay';
       const key = toIso(t);
-      let amt = kind==='payday'?Number(settings.husbandPayday)||0:Number(settings.husbandInstapay)||0;
+      const baseAmount = kind==='payday'?Number(settings.husbandPayday)||0:Number(settings.husbandInstapay)||0;
+      let amt = baseAmount;
       if (overrides[key]!=null && overrides[key]!=='') amt=Number(overrides[key]);
-      out.push({date:t,key,kind,label:kind==='payday'?'Payday':'Instapay',amount:amt});
+      out.push({date:t,key,kind,label:kind==='payday'?'Payday':'Instapay',amount:amt,baseAmount,hasOverride:(overrides[key]!=null && overrides[key]!=='')});
       t=addDays(t,7);
     }
     return out;
   }
 
-  function wifeEvents(settings, from, to) {
+  function wifeEvents(settings, overrides, from, to) {
     const out=[];
     for (let x=sod(from); x<=to; x=addDays(x,1)) {
       if (x.getDay()!==2) continue;
-      out.push({date:x,key:toIso(x),kind:'wife',label:'Salary',amount:Number(settings.wifeWeekly)||0});
+      const key = toIso(x);
+      const baseAmount = Number(settings.wifeWeekly)||0;
+      const hasOverride = overrides[key]!=null && overrides[key]!=='';
+      const amount = hasOverride ? Number(overrides[key]) : baseAmount;
+      out.push({date:x,key,kind:'wife',label:'Salary',amount,baseAmount,hasOverride});
     }
     return out;
   }
 
-  function allIncome(settings, overrides, from, to) {
-    if (!settings.anchorPaydayThursday) return wifeEvents(settings, from, to);
-    return [...wifeEvents(settings,from,to),...husbandEvents(settings,overrides,from,to)]
+  function oneTimePaymentEvents(payments, from, to) {
+    const rangeStart = sod(from);
+    const rangeEnd = sod(to);
+    return payments
+      .filter(payment => payment.paymentDate)
+      .map(payment => ({
+        date:      parseIso(payment.paymentDate),
+        key:       `payment-${payment.id}-${payment.paymentDate}`,
+        kind:      'payment',
+        label:     payment.name || 'One-time payment',
+        amount:    Number(payment.amount) || 0,
+        paymentId: payment.id,
+      }))
+      .filter(payment => payment.date >= rangeStart && payment.date <= rangeEnd);
+  }
+
+  function allIncome(settings, overrides, payments, from, to) {
+    const scheduled = settings.anchorPaydayThursday
+      ? [...wifeEvents(settings,overrides,from,to), ...husbandEvents(settings,overrides,from,to)]
+      : wifeEvents(settings, overrides, from, to);
+    return [...scheduled, ...oneTimePaymentEvents(payments, from, to)]
       .sort((a,b)=>a.date-b.date);
   }
 
@@ -452,7 +523,7 @@ const DEFAULTS = {
   }
 
   // Reusable: build a cashflow table into a tbody, returns final running balance
-  // interactive=true enables paid checkboxes and amount editing on bill rows
+  // interactive=true enables cleared/paid controls and occurrence-level amount editing.
   function buildCashflow(tbody, openBal, incEvents, billItems, today, interactive) {
     tbody.innerHTML = '';
     function makeRow(cells, cls) {
@@ -462,7 +533,17 @@ const DEFAULTS = {
     }
 
     const timeline = [];
-    incEvents.forEach(e=>timeline.push({date:e.date,type:'income',label:e.label,tag:e.kind,amount:e.amount,key:e.key}));
+    incEvents.forEach(e=>timeline.push({
+      date:e.date,
+      type:'income',
+      label:e.label,
+      tag:e.kind,
+      amount:e.amount,
+      baseAmount:e.baseAmount,
+      hasOverride:!!e.hasOverride,
+      key:e.key,
+      paymentId:e.paymentId,
+    }));
     billItems.forEach(({bill,date})=>{
       const bkey = bill.id+'-'+toIso(date);
       const overAmt = S.billOverrides[bkey];
@@ -486,18 +567,25 @@ const DEFAULTS = {
           ? `<td class="running" style="${alpha}color:var(--muted)">—</td>`
           : `<td class="running ${running>=0?'pos':'neg'}">${money(running)}</td>`;
         const clearedCheck = interactive && !past
-          ? `<input type="checkbox" class="cleared-check" data-key="${item.key}" ${cleared?'checked':''} title="Check if this paycheck already cleared and is sitting in your bank balance" />`
+          ? `<input type="checkbox" class="cleared-check" data-key="${item.key}" ${cleared?'checked':''} title="Check if this income item already cleared and is sitting in your bank balance" />`
           : '';
         const clearedTag = cleared
           ? '<span class="tag" title="Already in bank balance" style="background:rgba(91,141,239,.1);color:var(--accent);border:1px solid rgba(91,141,239,.25);margin-left:0.3rem">✓</span>'
           : '';
         const incDim = effectivePast ? alpha : '';
         const metaText = cleared ? ' · in bank' : past ? ' · past' : '';
-        // Pill carries the type label (Salary / Payday / Instapay) — no duplicate text after it.
+        const paymentLabel = item.paymentId ? ` <span class="flow-income-label">${esc(item.label)}</span>` : '';
+        const overTag = item.hasOverride ? '<span class="tag" title="Adjusted from default" style="background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25);margin-left:0.3rem">±</span>' : '';
+        const removeButton = item.paymentId
+          ? `<button type="button" class="flow-remove" data-payment-id="${esc(item.paymentId)}" title="Remove this one-time payment">Remove</button>`
+          : '';
+        const amountCell = interactive && !past && !item.paymentId
+          ? `<td class="amt pos income-amt-editable" data-key="${item.key}" data-base="${item.baseAmount}" style="${incDim}" title="Tap to adjust only this income occurrence">+${money(item.amount)}</td>`
+          : `<td class="amt pos" style="${incDim}">${effectivePast?'':'+'}${money(item.amount)}</td>`;
         tbody.appendChild(makeRow(`
-          <td><div class="row-name" style="${incDim}"><span style="display:inline-flex;align-items:center">${clearedCheck}${tagHtml(item.tag)}</span>${clearedTag}</div>
+          <td><div class="row-name" style="${incDim}"><span style="display:inline-flex;align-items:center">${clearedCheck}${tagHtml(item.tag)}</span>${paymentLabel}${overTag}${clearedTag}${removeButton}</div>
               <div class="row-meta">${fmtLong(item.date)}${metaText}</div></td>
-          <td class="amt pos" style="${incDim}">${effectivePast?'':'+'}${money(item.amount)}</td>
+          ${amountCell}
           ${runCell}`));
       } else {
         // Past bills: checked = cleared (already in bank balance, don't move running)
@@ -526,7 +614,7 @@ const DEFAULTS = {
           ? `<td class="running" style="${alpha}color:var(--muted)">—</td>`
           : `<td class="running ${running>=0?'pos':'neg'}" style="${dimStyle}">${money(running)}</td>`;
 
-        const amtCell = interactive && affectsRunning && !past
+        const amtCell = interactive && !past
           ? `<td class="amt neg amt-editable" data-bkey="${item.bkey}" data-base="${item.baseAmount}" style="${dimStyle}">−${money(item.amount)}</td>`
           : `<td class="amt neg" style="${past&&isChecked?alpha:dimStyle}">−${money(item.amount)}</td>`;
 
@@ -557,15 +645,82 @@ const DEFAULTS = {
   }
 
   let mealsWeekOffset = 0; // 0 = current week, 1 = next week
-  let editingEventId = null; // when set, that event renders as an inline edit form
+  let selectedListId = null;
 
-  function fmtTime(hhmm) {
-    if (!hhmm) return '';
-    const [h, m] = String(hhmm).split(':').map(Number);
-    if (isNaN(h)) return '';
-    const period = h >= 12 ? 'pm' : 'am';
-    const h12 = ((h + 11) % 12) + 1;
-    return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2,'0')}${period}`;
+  const NEVADA_TIMEZONE = 'America/Chicago';
+  const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=37.83808&longitude=-94.35931&current=temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FChicago&forecast_days=1';
+
+  function syncThemeButton() {
+    const light = document.documentElement.dataset.theme === 'light';
+    const icon = document.getElementById('theme-toggle-icon');
+    const label = document.getElementById('theme-toggle-label');
+    if (icon) icon.textContent = light ? '☀' : '☾';
+    if (label) label.textContent = light ? 'Light' : 'Dark';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#e7e5e8' : '#08080b');
+  }
+
+  function updateAmbientClock() {
+    const now = new Date();
+    const hour = Number(new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric', hour12: false, timeZone: NEVADA_TIMEZONE,
+    }).format(now));
+    const greeting = hour < 12 ? 'Good morning.' : hour < 17 ? 'Good afternoon.' : 'Good evening.';
+    const greetingEl = document.getElementById('home-greeting');
+    if (greetingEl) greetingEl.textContent = greeting;
+    const dateEl = document.getElementById('ambient-date');
+    if (dateEl) dateEl.textContent = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: NEVADA_TIMEZONE,
+    }).format(now);
+    const timeEl = document.getElementById('ambient-time');
+    if (timeEl) timeEl.textContent = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric', minute: '2-digit', timeZone: NEVADA_TIMEZONE,
+    }).format(now);
+  }
+
+  function weatherDescription(code) {
+    if (code === 0) return 'Clear';
+    if (code <= 3) return 'Partly cloudy';
+    if (code === 45 || code === 48) return 'Foggy';
+    if (code >= 51 && code <= 57) return 'Drizzle';
+    if (code >= 61 && code <= 67) return 'Rain';
+    if (code >= 71 && code <= 77) return 'Snow';
+    if (code >= 80 && code <= 82) return 'Showers';
+    if (code >= 85 && code <= 86) return 'Snow showers';
+    if (code >= 95) return 'Thunderstorms';
+    return 'Mixed conditions';
+  }
+
+  function weatherIcon(code, isDay) {
+    if (code === 0) return isDay ? '☀' : '☾';
+    if (code <= 3) return isDay ? '◒' : '☁';
+    if (code === 45 || code === 48) return '≋';
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return '☂';
+    if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return '❄';
+    if (code >= 95) return 'ϟ';
+    return '◌';
+  }
+
+  async function loadWeather() {
+    try {
+      const response = await fetch(WEATHER_URL);
+      if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
+      const data = await response.json();
+      const current = data.current || {};
+      const daily = data.daily || {};
+      const code = Number(current.weather_code) || 0;
+      document.getElementById('weather-icon').textContent = weatherIcon(code, !!current.is_day);
+      document.getElementById('weather-temp').textContent = `${Math.round(Number(current.temperature_2m))}°`;
+      document.getElementById('weather-desc').textContent = weatherDescription(code);
+      const high = Math.round(Number(daily.temperature_2m_max?.[0]));
+      const low = Math.round(Number(daily.temperature_2m_min?.[0]));
+      const rain = Math.round(Number(daily.precipitation_probability_max?.[0]) || 0);
+      const wind = Math.round(Number(current.wind_speed_10m) || 0);
+      document.getElementById('weather-meta').textContent = `Nevada, MO · H ${high}° / L ${low}° · ${rain}% rain · ${wind} mph`;
+    } catch (error) {
+      console.warn('Weather unavailable:', error);
+      document.getElementById('weather-desc').textContent = 'Weather unavailable';
+      document.getElementById('weather-meta').textContent = 'Nevada, Missouri · time is still live';
+    }
   }
 
   // Walk the timeline (same logic as buildCashflow) up to and including
@@ -574,12 +729,7 @@ const DEFAULTS = {
   function runningBalanceAt(targetDate) {
     const today = new Date();
     const cfg   = S.settings;
-    const bal       = Number(S.balance)||0;
-    const miscIn    = Number(S.miscIncome)||0;
-    const miscOut   = Number(S.miscExpense)||0;
-    const groceries = Number(S.groceries)||0;
-    const fuel      = Number(S.fuel)||0;
-    const start     = bal + miscIn - miscOut - groceries - fuel;
+    const start = Number(S.balance) || 0;
 
     // Window: from start of current half through targetDate (extending into
     // next half if targetDate falls past current half's end).
@@ -587,7 +737,7 @@ const DEFAULTS = {
     const periodStart = half.start;
     const periodEnd   = sod(targetDate) > sod(half.end) ? targetDate : half.end;
 
-    const incEvents = allIncome(cfg, S.incomeOverrides, periodStart, periodEnd);
+    const incEvents = allIncome(cfg, S.incomeOverrides, S.oneTimePayments, periodStart, periodEnd);
     const bills     = billsInHalf(S.bills, periodStart, periodEnd, today);
 
     const timeline = [];
@@ -629,25 +779,22 @@ const DEFAULTS = {
   function renderToday() {
     const todayIso = toIso(new Date());
     const meal = S.meals.find(m => m.date === todayIso);
-    const todayEvents = S.events
-      .filter(e => e.date === todayIso)
-      .sort((a,b) => (a.time||'99').localeCompare(b.time||'99'));
     const dateLabel = fmtLong(new Date());
+    const todayMoney = runningBalanceAt(new Date()).running;
+    const openItems = S.listItems.filter(item => !item.completed).length;
 
     const mealLine = meal && meal.name
-      ? `<div><span class="today-lbl">Dinner</span><strong>${esc(meal.name)}</strong>${meal.notes ? ` <span class="today-meta">· ${esc(meal.notes)}</span>` : ''}</div>`
-      : `<div class="today-empty">No meal planned for tonight</div>`;
+      ? `<div class="today-focus"><span class="today-lbl">Dinner</span><strong>${esc(meal.name)}</strong>${meal.notes ? `<span class="today-meta">${esc(meal.notes)}</span>` : ''}</div>`
+      : `<div class="today-focus"><span class="today-lbl">Dinner</span><span class="today-empty">No meal planned yet</span></div>`;
 
-    const eventsLine = todayEvents.length
-      ? `<div class="today-events">${todayEvents.map(e => {
-          const t = e.time ? `<span class="today-time">${fmtTime(e.time)}</span> ` : '';
-          return `<div>${t}<strong>${esc(e.title)}</strong>${e.notes ? ` <span class="today-meta">· ${esc(e.notes)}</span>` : ''}</div>`;
-        }).join('')}</div>`
-      : `<div class="today-empty">Nothing on the calendar today</div>`;
-
-    document.getElementById('today-title').textContent = `📅 Today — ${dateLabel}`;
+    document.getElementById('today-title').textContent = `Today · ${dateLabel}`;
     document.getElementById('today-content').innerHTML =
-      `<div class="today-stack">${mealLine}${eventsLine}</div>`;
+      `<div class="today-stack">${mealLine}
+        <div class="today-metrics">
+          <div><span>Available</span><strong>${money(todayMoney)}</strong></div>
+          <div><span>Open list items</span><strong>${openItems}</strong></div>
+        </div>
+      </div>`;
   }
 
   function renderSnapshots() {
@@ -663,11 +810,11 @@ const DEFAULTS = {
     document.getElementById('snapshot-now').textContent = money(now.running);
     document.getElementById('snapshot-now-sub').innerHTML =
       `<div>As of today:</div><div>${fmtLong(today)}</div>`;
-    document.getElementById('snapshot-now-card').className =
-      'hero-card' + (now.running <= 0 ? ' danger' : now.running < 200 ? ' warn' : ' safe');
+    const nowCard = document.getElementById('snapshot-now-card');
+    nowCard.classList.remove('safe','warn','danger');
+    nowCard.classList.add(now.running <= 0 ? 'danger' : now.running < 200 ? 'warn' : 'safe');
 
-    document.getElementById('snapshot-next-label').innerHTML =
-      `<span>📈 Available</span><span class="hero-label-sub">(7 Days Out)</span>`;
+    document.getElementById('snapshot-next-label').textContent = 'Seven days out';
     document.getElementById('snapshot-next').textContent = money(next.running);
 
     const dippedNegative = next.minRunning < 0;
@@ -675,8 +822,70 @@ const DEFAULTS = {
       ? `<div>⚠ Dips to ${money(next.minRunning)}</div><div>on ${fmtShort(next.minDate)}</div>`
       : `<div>Projected by:</div><div>${fmtLong(sevenOut)}</div>`;
     document.getElementById('snapshot-next-sub').innerHTML = nextSub;
-    document.getElementById('snapshot-next-card').className =
-      'hero-card' + (dippedNegative || next.running <= 0 ? ' danger' : next.running < 200 ? ' warn' : ' safe');
+    const nextCard = document.getElementById('snapshot-next-card');
+    nextCard.classList.remove('safe','warn','danger');
+    nextCard.classList.add(dippedNegative || next.running <= 0 ? 'danger' : next.running < 200 ? 'warn' : 'safe');
+  }
+
+  function compactMoney(value) {
+    const amount = Math.abs(Number(value) || 0);
+    const sign = Number(value) < 0 ? '−' : '';
+    if (amount >= 1000) return `${sign}$${(amount / 1000).toFixed(amount >= 10000 ? 0 : 1)}k`;
+    return `${sign}$${Math.round(amount)}`;
+  }
+
+  function renderCashflowChart() {
+    const host = document.getElementById('cashflow-chart');
+    if (!host) return;
+    const today = sod(new Date());
+    const series = Array.from({ length: 14 }, (_, index) => {
+      const date = addDays(today, index);
+      return { date, value: runningBalanceAt(date).running };
+    });
+    const values = series.map(point => point.value);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    const rawSpan = Math.max(max - min, 100);
+    min -= rawSpan * 0.14;
+    max += rawSpan * 0.14;
+
+    const width = 760, height = 258;
+    const pad = { top: 20, right: 18, bottom: 42, left: 54 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+    const x = index => pad.left + (index / (series.length - 1)) * plotW;
+    const y = value => pad.top + ((max - value) / (max - min || 1)) * plotH;
+    const line = series.map((point, index) => `${index ? 'L' : 'M'} ${x(index).toFixed(1)} ${y(point.value).toFixed(1)}`).join(' ');
+    const area = `M ${x(0).toFixed(1)} ${(pad.top + plotH).toFixed(1)} ${line.replace(/^M/, 'L')} L ${x(series.length - 1).toFixed(1)} ${(pad.top + plotH).toFixed(1)} Z`;
+    const grid = Array.from({ length: 4 }, (_, index) => {
+      const ratio = index / 3;
+      const value = max - ratio * (max - min);
+      const py = pad.top + ratio * plotH;
+      return `<line x1="${pad.left}" y1="${py}" x2="${width - pad.right}" y2="${py}" class="chart-grid-line" />
+        <text x="${pad.left - 9}" y="${py + 4}" text-anchor="end" class="chart-y-label">${compactMoney(value)}</text>`;
+    }).join('');
+    const labels = series.map((point, index) => index % 2 === 0 || index === series.length - 1
+      ? `<text x="${x(index)}" y="${height - 13}" text-anchor="middle" class="chart-x-label">${point.date.toLocaleDateString(undefined,{weekday:'short'})} ${point.date.getDate()}</text>`
+      : '').join('');
+    const dots = series.map((point, index) => `<circle cx="${x(index)}" cy="${y(point.value)}" r="${index === 0 || index === 7 || index === 13 ? 4.5 : 2.5}" class="chart-dot${point.value < 0 ? ' is-negative' : ''}"><title>${fmtLong(point.date)}: ${money(point.value)}</title></circle>`).join('');
+    const dividerX = x(7) - (plotW / 26);
+
+    host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Projected balance for the next fourteen days">
+      <defs>
+        <linearGradient id="cashflow-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity=".28" />
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      ${grid}
+      <line x1="${dividerX}" y1="${pad.top}" x2="${dividerX}" y2="${pad.top + plotH}" class="chart-week-divider" />
+      <text x="${dividerX + 8}" y="${pad.top + 12}" class="chart-week-label">NEXT WEEK</text>
+      <path d="${area}" class="chart-area" />
+      <path d="${line}" class="chart-line" />
+      ${dots}
+      ${labels}
+    </svg>
+    <div class="chart-caption"><span>Today ${money(series[0].value)}</span><span>14-day outlook ${money(series[13].value)}</span></div>`;
   }
 
   function renderMealsStrip() {
@@ -684,8 +893,8 @@ const DEFAULTS = {
     const todayIso = toIso(new Date());
     document.getElementById('meals-title').innerHTML =
       mealsWeekOffset === 0
-        ? `<span>🍽 Meals</span><span class="card-subtitle">▸ This Week: ${fmtShort(start)} – ${fmtShort(end)}</span>`
-        : `<span>🍽 Meals</span><span class="card-subtitle">▸ Next Week: ${fmtShort(start)} – ${fmtShort(end)}</span>`;
+        ? `<span>Dinner menu</span><span class="card-subtitle">This week · ${fmtShort(start)} – ${fmtShort(end)}</span>`
+        : `<span>Dinner menu</span><span class="card-subtitle">Next week · ${fmtShort(start)} – ${fmtShort(end)}</span>`;
 
     const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const cells = [];
@@ -715,72 +924,129 @@ const DEFAULTS = {
     ta.style.height = (ta.scrollHeight) + 'px';
   }
 
-  function renderUpcomingEvents() {
-    const today = sod(new Date());
-    const horizon = addDays(today, 21);
-    const list = document.getElementById('events-list');
-    const sorted = [...S.events]
-      .filter(e => parseIso(e.date) <= horizon)
-      .sort((a,b) =>
-        a.date.localeCompare(b.date) ||
-        (a.time||'99').localeCompare(b.time||'99')
-      );
+  function listItemsFor(listId) {
+    return S.listItems
+      .filter(item => item.listId === listId)
+      .sort((a, b) => a.sortOrder - b.sortOrder || String(a.createdAt).localeCompare(String(b.createdAt)));
+  }
 
-    if (!sorted.length) {
-      list.innerHTML = `<li class="event-empty">Nothing coming up.</li>`;
-    } else {
-      list.innerHTML = sorted.map(e => {
-        if (e.id === editingEventId) {
-          // Inline edit row
-          return `
-            <li class="event-row event-editing" data-event-id="${e.id}">
-              <div class="event-edit-grid">
-                <input type="date" class="ev-edit-date" value="${esc(e.date)}" />
-                <input type="time" class="ev-edit-time" value="${esc(e.time||'')}" />
-                <input type="text" class="ev-edit-title" value="${esc(e.title)}" placeholder="Title" />
-                <input type="text" class="ev-edit-notes" value="${esc(e.notes||'')}" placeholder="Notes (optional)" />
-              </div>
-              <div class="event-row-actions">
-                <button type="button" class="chip-btn chip-primary event-save" data-event-id="${e.id}">Save</button>
-                <button type="button" class="chip-btn event-cancel" data-event-id="${e.id}">Cancel</button>
-              </div>
-            </li>
-          `;
-        }
-        const d = parseIso(e.date);
-        const past = sod(d) < today;
-        const cls = past ? 'event-row is-past' : 'event-row';
-        const timeBadge = e.time ? `<span class="ev-time-badge">${fmtTime(e.time)}</span>` : '';
-        return `
-          <li class="${cls}" data-event-id="${e.id}">
-            <div class="event-row-left">
-              <div class="event-row-title">${timeBadge}<strong>${esc(e.title)}</strong></div>
-              <div class="event-row-meta">${fmtLong(d)}${e.notes ? ` · ${esc(e.notes)}` : ''}</div>
-            </div>
-            <div class="event-row-actions">
-              <button type="button" class="chip-btn event-edit" data-event-id="${e.id}">Edit</button>
-              <button type="button" class="chip-btn chip-danger event-del" data-event-id="${e.id}">Remove</button>
-            </div>
-          </li>
-        `;
-      }).join('');
+  function renderListLibrary() {
+    const host = document.getElementById('saved-lists');
+    const lists = [...S.lists].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    if (!lists.length) {
+      host.innerHTML = '<div class="saved-lists-empty">No lists yet.<br>Create one for groceries, errands, or anything else.</div>';
+      return;
+    }
+    host.innerHTML = lists.map(list => {
+      const items = listItemsFor(list.id);
+      const done = items.filter(item => item.completed).length;
+      const percent = items.length ? Math.round(done / items.length * 100) : 0;
+      return `<button type="button" class="saved-list-card${list.id === selectedListId ? ' is-active' : ''}" data-list-id="${esc(list.id)}">
+        <span class="saved-list-glyph">${percent === 100 && items.length ? '✓' : '□'}</span>
+        <span class="saved-list-copy"><strong>${esc(list.title)}</strong><small>${done} of ${items.length} complete</small></span>
+        <span class="saved-list-arrow">›</span>
+      </button>`;
+    }).join('');
+  }
+
+  function renderListEditor() {
+    const empty = document.getElementById('list-editor-empty');
+    const editor = document.getElementById('list-editor');
+    const list = S.lists.find(item => item.id === selectedListId);
+    if (!list) {
+      empty.hidden = false;
+      editor.hidden = true;
+      return;
     }
 
-    const dateInp = document.getElementById('event-add-date');
-    if (dateInp && !dateInp.value) dateInp.value = toIso(new Date());
+    empty.hidden = true;
+    editor.hidden = false;
+    document.getElementById('list-title-edit').value = list.title;
+    document.getElementById('list-notes-edit').value = list.notes || '';
+    const items = listItemsFor(list.id);
+    const done = items.filter(item => item.completed).length;
+    document.getElementById('list-progress').textContent = `${done} of ${items.length} complete`;
+    const itemsHost = document.getElementById('list-items');
+    itemsHost.innerHTML = items.length ? items.map(item => `
+      <li class="list-item-row${item.completed ? ' is-complete' : ''}" data-item-id="${esc(item.id)}">
+        <label class="list-check-wrap" title="${item.completed ? 'Mark as not done' : 'Mark as complete'}">
+          <input type="checkbox" class="list-item-check" data-item-id="${esc(item.id)}" ${item.completed ? 'checked' : ''} />
+          <span class="list-check-ui"></span>
+        </label>
+        <input type="text" class="list-item-text" data-item-id="${esc(item.id)}" value="${esc(item.text)}" maxlength="160" aria-label="List item" />
+        <button type="button" class="list-item-remove" data-item-id="${esc(item.id)}" aria-label="Remove ${esc(item.text)}">×</button>
+      </li>
+    `).join('') : '<li class="list-items-empty">Nothing here yet. Add the first line below.</li>';
+  }
+
+  function renderLists() {
+    if (selectedListId && !S.lists.some(list => list.id === selectedListId)) selectedListId = null;
+    if (!selectedListId && S.lists.length) {
+      selectedListId = [...S.lists].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0].id;
+    }
+    renderListLibrary();
+    renderListEditor();
   }
 
   function renderWeek() {
+    updateAmbientClock();
     renderToday();
     renderSnapshots();
+    renderCashflowChart();
     renderMealsStrip();
-    renderUpcomingEvents();
+    renderLists();
+  }
+
+  function billOccurrenceAmount(bill, date) {
+    const bkey = `${bill.id}-${toIso(date)}`;
+    const override = S.billOverrides[bkey];
+    return (override != null && override !== '') ? Number(override) : Number(bill.amount) || 0;
+  }
+
+  function renderUpcomingBillsSummary(curBills, nxtBills, today, currentEnd) {
+    const host = document.getElementById('upcoming-bills-summary');
+    if (!host) return;
+    const firstUpcoming = bills => bills
+      .filter(({ date }) => sod(date) >= sod(today))
+      .sort((a, b) => a.date - b.date);
+    const currentUpcoming = firstUpcoming(curBills).slice(0, 4);
+    const nextUpcoming = firstUpcoming(nxtBills).slice(0, 3);
+    const upcoming = [...currentUpcoming, ...nextUpcoming];
+
+    if (!upcoming.length) {
+      host.innerHTML = '<div class="upcoming-empty">Nothing else is due through the next half.</div>';
+      return;
+    }
+
+    host.innerHTML = upcoming.map(({ bill, date }) => {
+      const bkey = `${bill.id}-${toIso(date)}`;
+      const paid = !!S.paidBills[bkey];
+      const amount = billOccurrenceAmount(bill, date);
+      const baseAmount = Number(bill.amount) || 0;
+      const adjusted = S.billOverrides[bkey] != null && S.billOverrides[bkey] !== '';
+      const halfLabel = sod(date) <= sod(currentEnd) ? 'This half' : 'Next half';
+      return `<div class="upcoming-bill-row${paid ? ' is-paid' : ''}" data-bkey="${esc(bkey)}">
+        <label class="upcoming-check" title="${paid ? 'Mark unpaid' : 'Mark paid early'}">
+          <input type="checkbox" class="overview-paid-check" data-bkey="${esc(bkey)}" ${paid ? 'checked' : ''} />
+          <span></span>
+        </label>
+        <div class="upcoming-bill-copy">
+          <strong>${esc(bill.name || 'Unnamed bill')}</strong>
+          <small>${fmtShort(date)} · ${halfLabel}${bill.autodraft ? ' · Autodraft' : ''}${adjusted ? ' · Adjusted' : ''}</small>
+        </div>
+        <label class="upcoming-amount">
+          <span>$</span>
+          <input type="number" class="overview-amount-input${adjusted ? ' is-overridden' : ''}" data-bkey="${esc(bkey)}" data-base="${baseAmount}" min="0" step="0.01" value="${amount}" aria-label="Amount for ${esc(bill.name || 'bill')} on ${fmtShort(date)}" />
+        </label>
+      </div>`;
+    }).join('');
   }
 
   function renderDashboard() {
     // Keep the Week-view snapshot card in sync — every budget-side change
     // (balance, paid bills, income overrides, etc.) flows through here.
     renderSnapshots();
+    renderCashflowChart();
 
     const today = new Date();
     const cfg   = S.settings;
@@ -792,20 +1058,17 @@ const DEFAULTS = {
     $('#cycle-label').textContent = half.label;
     $('#cycle-range').textContent = `${fmtLong(from)} → ${fmtLong(to)}`;
 
-    const bal       = Number(S.balance)||0;
-    const miscIn    = Number(S.miscIncome)||0;
-    const miscOut   = Number(S.miscExpense)||0;
-    const groceries = Number(S.groceries)||0;
-    const fuel      = Number(S.fuel)||0;
-    const start     = bal + miscIn - miscOut - groceries - fuel;
+    const start = Number(S.balance) || 0;
 
     // Income & bills for current half
-    const incEvents     = allIncome(cfg, S.incomeOverrides, from, to);
+    const incEvents     = allIncome(cfg, S.incomeOverrides, S.oneTimePayments, from, to);
     const incTotal      = incEvents.reduce((s,e)=>s+e.amount,0);
     const curBills      = billsInHalf(S.bills, from, to, today);
-    const billsTotal    = curBills.reduce((s,{bill})=>s+(Number(bill.amount)||0),0);
+    const billsTotal    = curBills.reduce((s,{bill,date})=>s+billOccurrenceAmount(bill,date),0);
     const billsPast     = curBills.filter(({date})=>sod(date)<sod(today));
     const billsFuture   = curBills.filter(({date})=>sod(date)>=sod(today));
+    const nxtInc        = allIncome(cfg, S.incomeOverrides, S.oneTimePayments, nxt.start, nxt.end);
+    const nxtBills      = billsInHalf(S.bills, nxt.start, nxt.end);
 
     // Unpaid bills = future bills not marked paid + past bills user unchecked (haven't pulled yet)
     const billsRemain   = curBills.reduce((s,{bill,date})=>{
@@ -827,8 +1090,8 @@ const DEFAULTS = {
     const incFuture     = incEvents.filter(e=>sod(e.date)>=sod(today));
     const incRemain     = incFuture.reduce((s,e)=>S.clearedIncome[e.key]?s:s+e.amount,0);
 
-    // LIVE safe to spend = what's in the bank + income still coming - bills still owed
-    const safeToSpend   = start + incRemain - billsRemain;
+    // Uncommitted = what's in the bank + income still coming - bills still owed.
+    const uncommitted   = start + incRemain - billsRemain;
 
     $('#period-income').textContent = money(incTotal);
     $('#period-bills-total').textContent = money(billsTotal);
@@ -850,41 +1113,58 @@ const DEFAULTS = {
     ];
     if (paidEarlyCount) billsLines.push(`${paidEarlyCount} paid early`);
     renderBullets('hero-bills-sub', billsLines);
-    bc.className = 'hero-card' + (billsRemain > start+incRemain*0.8 ? ' danger' : billsRemain > 500 ? ' warn' : '');
+    bc.classList.remove('safe', 'warn', 'danger');
+    bc.classList.add(billsRemain > start + incRemain * 0.8 ? 'danger' : billsRemain > 500 ? 'warn' : 'safe');
 
-    // Hero: safe to spend (DRY — same dip-flag logic the Week page uses)
+    const committedPercent = incTotal > 0 ? Math.min(100, Math.max(0, billsTotal / incTotal * 100)) : (billsTotal ? 100 : 0);
+    const ring = $('#budget-ring');
+    ring.style.setProperty('--ring-fill', `${committedPercent * 3.6}deg`);
+    ring.classList.toggle('is-over', billsTotal > incTotal && incTotal > 0);
+
+    // Hero: uncommitted cash (same dip-flag logic the Home page uses).
     const sc = $('#hero-safe-card');
     const snap = runningBalanceAt(to);
     const dippedNegative = snap.minRunning < 0;
-    $('#hero-safe').textContent = money(safeToSpend);
+    $('#hero-safe').textContent = money(uncommitted);
+    sc.classList.remove('safe', 'warn', 'danger');
     if (dippedNegative) {
-      sc.className = 'hero-card danger';
+      sc.classList.add('danger');
       renderBullets('hero-safe-sub', [
         `⚠ Dips to ${money(snap.minRunning)}`,
         `on ${fmtShort(snap.minDate)}`,
       ]);
-    } else if (safeToSpend <= 0) {
-      sc.className = 'hero-card danger';
+    } else if (uncommitted <= 0) {
+      sc.classList.add('danger');
       renderBullets('hero-safe-sub', ['Short — review income & bills']);
-    } else if (safeToSpend < 150) {
-      sc.className = 'hero-card warn';
+    } else if (uncommitted < 150) {
+      sc.classList.add('warn');
       renderBullets('hero-safe-sub', ['Running tight']);
     } else {
-      sc.className = 'hero-card safe';
+      sc.classList.add('safe');
       renderBullets('hero-safe-sub', [
         `${totalUnpaid} bills remaining`,
-        `${incFuture.length} paychecks remaining`,
+        `${incFuture.length} income items remaining`,
       ]);
     }
 
-    // Hero: paychecks pending (future uncleared income)
+    // Hero: pending future income
     const pendingInc      = incFuture.filter(e=>!S.clearedIncome[e.key]);
     const clearedIncCount = incFuture.length - pendingInc.length;
     const pendingIncTotal = pendingInc.reduce((s,e)=>s+e.amount,0);
     $('#hero-income-pending').textContent = money(pendingIncTotal);
-    const incLines = [`${pendingInc.length} check${pendingInc.length!==1?'s':''} pending`];
+    const incLines = [`${pendingInc.length} item${pendingInc.length!==1?'s':''} pending`];
     if (clearedIncCount) incLines.push(`${clearedIncCount} in bank`);
     renderBullets('hero-income-sub', incLines);
+
+    const incomeReceivedPercent = incTotal > 0 ? Math.max(0, Math.min(100, (incTotal - pendingIncTotal) / incTotal * 100)) : 0;
+    const billsClearedPercent = billsTotal > 0 ? Math.max(0, Math.min(100, (billsTotal - billsRemain) / billsTotal * 100)) : 100;
+    $('#budget-income-bar').style.width = `${incomeReceivedPercent}%`;
+    $('#budget-bills-bar').style.width = `${billsClearedPercent}%`;
+    const status = $('#budget-status');
+    status.textContent = dippedNegative || uncommitted < 0 ? 'Needs attention' : uncommitted < 200 ? 'Running tight' : 'On track';
+    status.className = `finance-status ${dippedNegative || uncommitted < 0 ? 'danger' : uncommitted < 200 ? 'warn' : 'safe'}`;
+
+    renderUpcomingBillsSummary(curBills, nxtBills, today, to);
 
     // ── Current half cashflow ──
     $('#flow-title').innerHTML =
@@ -903,15 +1183,13 @@ const DEFAULTS = {
     flowTbody.appendChild(endTr);
 
     // ── Look-ahead: next half ──
-    const nxtInc   = allIncome(cfg, S.incomeOverrides, nxt.start, nxt.end);
-    const nxtBills = billsInHalf(S.bills, nxt.start, nxt.end);
     const nxtIncTotal  = nxtInc.reduce((s,e)=>s+e.amount,0);
-    const nxtBillTotal = nxtBills.reduce((s,{bill})=>s+(Number(bill.amount)||0),0);
+    const nxtBillTotal = nxtBills.reduce((s,{bill,date})=>s+billOccurrenceAmount(bill,date),0);
 
     $('#lookahead-title').innerHTML =
-      `<span>Look-ahead</span><span class="card-subtitle">▸ ${nxt.label} (${fmtShort(nxt.start)} – ${fmtShort(nxt.end)})</span>`;
+      `<span>Next half · editable</span><span class="card-subtitle">${nxt.label} (${fmtShort(nxt.start)} – ${fmtShort(nxt.end)}) · check paid early or tap an amount</span>`;
     const nxtEnding = buildCashflow(
-      $('#lookahead-tbody'), endingBal, nxtInc, nxtBills, null
+      $('#lookahead-tbody'), endingBal, nxtInc, nxtBills, today, true
     );
     // End row for look-ahead
     const laTbody = $('#lookahead-tbody');
@@ -926,20 +1204,27 @@ const DEFAULTS = {
     // Seed quick-add date inputs with a sensible default date in each half
     const qaDateCur = $('#qa-date-cur');
     const qaDateNxt = $('#qa-date-nxt');
+    const paymentDateCur = $('#payment-date-cur');
+    const paymentDateNxt = $('#payment-date-nxt');
     if (qaDateCur) {
       const curDefault = sod(today) >= sod(from) && sod(today) <= sod(to) ? toIso(today) : toIso(from);
       qaDateCur.value = qaDateCur.value || curDefault;
       qaDateCur.min = toIso(from); qaDateCur.max = toIso(to);
+      paymentDateCur.value = paymentDateCur.value || curDefault;
+      paymentDateCur.min = toIso(from); paymentDateCur.max = toIso(to);
     }
     if (qaDateNxt) {
       qaDateNxt.value = qaDateNxt.value || toIso(nxt.start);
       qaDateNxt.min = toIso(nxt.start); qaDateNxt.max = toIso(nxt.end);
+      paymentDateNxt.value = paymentDateNxt.value || toIso(nxt.start);
+      paymentDateNxt.min = toIso(nxt.start); paymentDateNxt.max = toIso(nxt.end);
     }
   }
 
   function tagHtml(kind) {
     if(kind==='wife')     return '<span class="tag wife">Salary</span>';
     if(kind==='payday')   return '<span class="tag payday">Payday</span>';
+    if(kind==='payment')  return '<span class="tag payment">One-time</span>';
     return '<span class="tag instapay">Instapay</span>';
   }
 
@@ -998,50 +1283,28 @@ const DEFAULTS = {
     const list=$('#list-schedule');
     list.innerHTML='';
     const from=new Date(), to=addDays(from,35);
-    const events = allIncome(cfg,S.incomeOverrides,from,to)
+    const events = allIncome(cfg,S.incomeOverrides,S.oneTimePayments,from,to)
       .filter(e=>e.date>=sod(from));
-
-    let nextInstapayKey = null;
-    let nextPaydayKey = null;
-    for (const e of events) {
-      if (e.kind === 'instapay' && !nextInstapayKey) nextInstapayKey = e.key;
-      if (e.kind === 'payday'   && !nextPaydayKey)   nextPaydayKey   = e.key;
-      if (nextInstapayKey && nextPaydayKey) break;
-    }
 
     events.forEach(e=>{
       const li=document.createElement('li');
-      const isOverrideable = (e.key === nextInstapayKey || e.key === nextPaydayKey);
+      const adjustedTag = e.hasOverride
+        ? '<span class="tag" title="Adjusted from default" style="background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25)">± adjusted</span>'
+        : '';
+      const adjustedMeta = e.hasOverride ? ' · adjusted in cashflow' : '';
 
-      if (e.kind === 'wife') {
+      if (e.kind === 'payment') {
         li.innerHTML=`
           <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)}</span>
+            <span class="ev-labels">${tagHtml(e.kind)} ${esc(e.label)}</span>
             <span class="ev-meta">${fmtLong(e.date)}</span>
           </span>
           <span class="ev-amt">${money(e.amount)}</span>`;
-      } else if (isOverrideable) {
-        const defaultAmt = e.kind==='payday'
-          ? Number(cfg.husbandPayday)||0
-          : Number(cfg.husbandInstapay)||0;
-        const hasOverride = S.incomeOverrides[e.key] != null && S.incomeOverrides[e.key] !== '';
-        const overrideVal = hasOverride ? S.incomeOverrides[e.key] : '';
-        const overrideCls = hasOverride ? ' is-overridden' : '';
-
-        li.innerHTML=`
-          <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)} <span class="tag" style="background:var(--accent-glow);color:var(--accent);border:1px solid var(--border-hi)">next up</span></span>
-            <span class="ev-meta">${fmtLong(e.date)}${hasOverride ? ' · overridden' : ' · editable'}</span>
-          </span>
-          <input type="number" class="override-input${overrideCls}" data-key="${e.key}"
-                 placeholder="${defaultAmt}" value="${overrideVal}"
-                 min="0" step="0.01"
-                 title="Override amount for this week (blank = default $${defaultAmt})" />`;
       } else {
         li.innerHTML=`
           <span class="ev-left">
-            <span class="ev-labels">${tagHtml(e.kind)}</span>
-            <span class="ev-meta">${fmtLong(e.date)}</span>
+            <span class="ev-labels">${tagHtml(e.kind)} ${adjustedTag}</span>
+            <span class="ev-meta">${fmtLong(e.date)}${adjustedMeta}</span>
           </span>
           <span class="ev-amt">${money(e.amount)}</span>`;
       }
@@ -1055,15 +1318,10 @@ const DEFAULTS = {
     $('#set-wife').value=c.wifeWeekly;
     $('#set-payday').value=c.husbandPayday;
     $('#set-instapay').value=c.husbandInstapay;
-    $('#set-anchor-thu').value=c.anchorPaydayThursday;
   }
 
   function syncBalance() {
     $('#input-balance').value=S.balance;
-    $('#input-misc-income').value=S.miscIncome;
-    $('#input-misc-expense').value=S.miscExpense;
-    $('#input-groceries').value=S.groceries;
-    $('#input-fuel').value=S.fuel;
   }
 
   function refresh() { syncBalance(); syncSettings(); renderWeek(); renderDashboard(); renderBillsTable(); renderSchedule(); }
@@ -1119,113 +1377,256 @@ const DEFAULTS = {
     if (ev.target.classList.contains('meal-name-input')) autoResizeTextarea(ev.target);
   });
 
-  // Add an event
-  document.getElementById('event-add-submit').addEventListener('click', async () => {
-    const dateEl  = document.getElementById('event-add-date');
-    const timeEl  = document.getElementById('event-add-time');
-    const titleEl = document.getElementById('event-add-title');
-    const notesEl = document.getElementById('event-add-notes');
-    const date  = dateEl.value;
-    const time  = timeEl.value || '';
-    const title = titleEl.value.trim();
-    const notes = notesEl.value.trim();
-    if (!date || !title) { alert('Pick a date and add a title.'); return; }
-    const ev = {
-      id: `event-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-      date, time, title, notes,
+  // ── Shared lists ──────────────────────────────────────────────
+  const newListForm = document.getElementById('new-list-form');
+  const newListTitle = document.getElementById('new-list-title');
+  const newListNotes = document.getElementById('new-list-notes');
+  const draftListItemsHost = document.getElementById('draft-list-items');
+  const draftListItemInput = document.getElementById('draft-list-item-new');
+  let draftListItems = [];
+
+  function renderDraftListItems() {
+    draftListItemsHost.innerHTML = draftListItems.length
+      ? draftListItems.map((item, index) => `
+          <li class="draft-list-row" data-draft-index="${index}">
+            <span class="draft-list-dot">•</span>
+            <input type="text" class="draft-list-item-text" data-draft-index="${index}" value="${esc(item)}" maxlength="160" aria-label="Draft list item" />
+            <button type="button" class="draft-list-item-remove" data-draft-index="${index}" aria-label="Remove ${esc(item)}">×</button>
+          </li>`).join('')
+      : '<li class="list-items-empty">Add as many starter items as you need. Nothing is saved yet.</li>';
+  }
+
+  function closeNewListForm() {
+    newListForm.hidden = true;
+    newListTitle.value = '';
+    newListNotes.value = '';
+    draftListItemInput.value = '';
+    draftListItems = [];
+    renderDraftListItems();
+  }
+
+  document.getElementById('new-list-toggle').addEventListener('click', () => {
+    newListForm.hidden = false;
+    renderDraftListItems();
+    newListTitle.focus();
+  });
+  document.getElementById('new-list-cancel').addEventListener('click', closeNewListForm);
+
+  function addDraftListItem() {
+    const text = draftListItemInput.value.trim();
+    if (!text) { draftListItemInput.focus(); return; }
+    draftListItems.push(text);
+    draftListItemInput.value = '';
+    renderDraftListItems();
+    draftListItemInput.focus();
+  }
+
+  document.getElementById('draft-list-item-add').addEventListener('click', addDraftListItem);
+  draftListItemInput.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); addDraftListItem(); }
+  });
+
+  draftListItemsHost.addEventListener('focusout', ev => {
+    const input = ev.target;
+    if (!(input instanceof HTMLInputElement) || !input.classList.contains('draft-list-item-text')) return;
+    const index = Number(input.dataset.draftIndex);
+    const text = input.value.trim();
+    if (!Number.isInteger(index) || !draftListItems[index]) return;
+    if (!text) { renderDraftListItems(); return; }
+    draftListItems[index] = text;
+  });
+
+  draftListItemsHost.addEventListener('keydown', ev => {
+    if (!ev.target.classList.contains('draft-list-item-text')) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
+    if (ev.key === 'Escape') renderDraftListItems();
+  });
+
+  draftListItemsHost.addEventListener('click', ev => {
+    const removeButton = ev.target.closest('.draft-list-item-remove');
+    if (!removeButton) return;
+    const index = Number(removeButton.dataset.draftIndex);
+    if (!Number.isInteger(index)) return;
+    draftListItems.splice(index, 1);
+    renderDraftListItems();
+  });
+
+  async function saveDraftList() {
+    const title = newListTitle.value.trim();
+    if (!title) { newListTitle.focus(); return; }
+    const now = new Date().toISOString();
+    const list = {
+      id: `list-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      notes: newListNotes.value.trim(),
+      createdAt: now,
+      updatedAt: now,
     };
-    S.events.push(ev);
-    await saveEventRow(ev);
-    titleEl.value = '';
-    notesEl.value = '';
-    timeEl.value  = '';
-    renderUpcomingEvents();
+    const items = draftListItems.map((text, index) => ({
+      id: `list-item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+      listId: list.id,
+      text,
+      completed: false,
+      sortOrder: index,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    const saveButton = document.getElementById('new-list-create');
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving…';
+    try {
+      const listSaved = await saveListRow(list);
+      if (!listSaved) throw new Error('The list could not be saved.');
+      const itemResults = await Promise.all(items.map(saveListItemRow));
+      if (itemResults.some(saved => !saved)) {
+        await deleteListRow(list.id);
+        throw new Error('One or more list items could not be saved.');
+      }
+
+      S.lists.push(list);
+      S.listItems.push(...items);
+      selectedListId = list.id;
+      closeNewListForm();
+      renderLists();
+      renderToday();
+    } catch (error) {
+      console.error('saveDraftList error:', error);
+      alert('This list did not save. Please try again.');
+    } finally {
+      saveButton.disabled = false;
+      saveButton.textContent = 'Save to deck';
+    }
+  }
+
+  document.getElementById('new-list-create').addEventListener('click', saveDraftList);
+  newListTitle.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); draftListItemInput.focus(); }
+    if (ev.key === 'Escape') closeNewListForm();
+  });
+  renderDraftListItems();
+
+  document.getElementById('saved-lists').addEventListener('click', ev => {
+    const card = ev.target.closest('.saved-list-card');
+    if (!card) return;
+    selectedListId = card.dataset.listId;
+    renderLists();
+  });
+
+  document.getElementById('list-save-meta').addEventListener('click', async () => {
+    const list = S.lists.find(item => item.id === selectedListId);
+    if (!list) return;
+    const titleInput = document.getElementById('list-title-edit');
+    const title = titleInput.value.trim();
+    if (!title) { titleInput.focus(); return; }
+    list.title = title;
+    list.notes = document.getElementById('list-notes-edit').value.trim();
+    await saveListRow(list);
+    renderLists();
+  });
+
+  document.getElementById('list-delete').addEventListener('click', async () => {
+    const list = S.lists.find(item => item.id === selectedListId);
+    if (!list || !confirm(`Delete “${list.title}” and every item inside it?`)) return;
+    const id = list.id;
+    S.lists = S.lists.filter(item => item.id !== id);
+    S.listItems = S.listItems.filter(item => item.listId !== id);
+    selectedListId = null;
+    await deleteListRow(id);
+    renderLists();
     renderToday();
   });
 
-  // Edit / save / cancel / delete event
-  document.getElementById('events-list').addEventListener('click', async (ev) => {
-    const target = ev.target;
+  async function addListItem() {
+    const list = S.lists.find(item => item.id === selectedListId);
+    const input = document.getElementById('list-item-new');
+    const itemText = input.value.trim();
+    if (!list || !itemText) { input.focus(); return; }
+    const siblings = listItemsFor(list.id);
+    const now = new Date().toISOString();
+    const item = {
+      id: `list-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      listId: list.id,
+      text: itemText,
+      completed: false,
+      sortOrder: siblings.length ? Math.max(...siblings.map(entry => entry.sortOrder)) + 1 : 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    S.listItems.push(item);
+    await saveListItemRow(item);
+    input.value = '';
+    renderLists();
+    renderToday();
+    document.getElementById('list-item-new').focus();
+  }
 
-    const editBtn = target.closest('.event-edit');
-    if (editBtn) {
-      editingEventId = editBtn.dataset.eventId;
-      renderUpcomingEvents();
-      return;
-    }
+  document.getElementById('list-item-add').addEventListener('click', addListItem);
+  document.getElementById('list-item-new').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); addListItem(); }
+  });
 
-    const cancelBtn = target.closest('.event-cancel');
-    if (cancelBtn) {
-      editingEventId = null;
-      renderUpcomingEvents();
-      return;
-    }
+  const listItemsHost = document.getElementById('list-items');
+  listItemsHost.addEventListener('change', async ev => {
+    const checkbox = ev.target;
+    if (!(checkbox instanceof HTMLInputElement) || !checkbox.classList.contains('list-item-check')) return;
+    const item = S.listItems.find(entry => entry.id === checkbox.dataset.itemId);
+    if (!item) return;
+    item.completed = checkbox.checked;
+    await saveListItemRow(item);
+    renderLists();
+    renderToday();
+  });
 
-    const saveBtn = target.closest('.event-save');
-    if (saveBtn) {
-      const li = saveBtn.closest('li');
-      const id = saveBtn.dataset.eventId;
-      const event = S.events.find(e => e.id === id);
-      if (!event) return;
-      const newDate  = li.querySelector('.ev-edit-date').value;
-      const newTime  = li.querySelector('.ev-edit-time').value || '';
-      const newTitle = li.querySelector('.ev-edit-title').value.trim();
-      const newNotes = li.querySelector('.ev-edit-notes').value.trim();
-      if (!newDate || !newTitle) { alert('Date and title are required.'); return; }
-      event.date  = newDate;
-      event.time  = newTime;
-      event.title = newTitle;
-      event.notes = newNotes;
-      editingEventId = null;
-      await saveEventRow(event);
-      renderUpcomingEvents();
-      renderToday();
-      return;
-    }
+  listItemsHost.addEventListener('focusout', async ev => {
+    const input = ev.target;
+    if (!(input instanceof HTMLInputElement) || !input.classList.contains('list-item-text')) return;
+    const item = S.listItems.find(entry => entry.id === input.dataset.itemId);
+    if (!item) return;
+    const value = input.value.trim();
+    if (!value) { input.value = item.text; return; }
+    if (value === item.text) return;
+    item.text = value;
+    await saveListItemRow(item);
+    renderListLibrary();
+  });
 
-    const delBtn = target.closest('.event-del');
-    if (delBtn) {
-      const id = delBtn.dataset.eventId;
-      S.events = S.events.filter(e => e.id !== id);
-      await deleteEventRow(id);
-      renderUpcomingEvents();
-      renderToday();
-      return;
-    }
+  listItemsHost.addEventListener('keydown', ev => {
+    if (!ev.target.classList.contains('list-item-text')) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
+    if (ev.key === 'Escape') renderListEditor();
+  });
+
+  listItemsHost.addEventListener('click', async ev => {
+    const removeButton = ev.target.closest('.list-item-remove');
+    if (!removeButton) return;
+    const id = removeButton.dataset.itemId;
+    S.listItems = S.listItems.filter(item => item.id !== id);
+    await deleteListItemRow(id);
+    renderLists();
+    renderToday();
+  });
+
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('ghp-theme', next);
+    syncThemeButton();
   });
 
   $('#input-balance').addEventListener('input', async function() { S.balance=this.value; await save(); renderDashboard(); });
-  $('#input-misc-income').addEventListener('input', async function() { S.miscIncome=this.value; await save(); renderDashboard(); });
-  $('#input-misc-expense').addEventListener('input', async function() { S.miscExpense=this.value; await save(); renderDashboard(); });
-  $('#input-groceries').addEventListener('input',  async function() { S.groceries=this.value; await save(); renderDashboard(); });
-  $('#input-fuel').addEventListener('input',       async function() { S.fuel=this.value; await save(); renderDashboard(); });
 
   const smap = {
     '#set-wife':        v=>S.settings.wifeWeekly=v?Number(v):0,
     '#set-payday':      v=>S.settings.husbandPayday=v?Number(v):0,
     '#set-instapay':    v=>S.settings.husbandInstapay=v?Number(v):0,
-    '#set-anchor-thu':  v=>S.settings.anchorPaydayThursday=v,
   };
   Object.entries(smap).forEach(([sel,fn])=>{
     $(sel).addEventListener('change', async ()=>{ fn($(sel).value); await save(); renderDashboard(); renderSchedule(); });
   });
 
-  $('#list-schedule').addEventListener('change', async ev=>{
-    const inp = ev.target;
-    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('override-input')) return;
-    const key = inp.dataset.key;
-    if (inp.value === '') {
-      delete S.incomeOverrides[key];
-    } else {
-      S.incomeOverrides[key] = inp.value;
-    }
-    await save();
-    renderDashboard();
-    renderSchedule();
-  });
-
-  // Cashflow: mark income as cleared (already in bank balance)
-  $('#flow-tbody').addEventListener('change', ev=>{
+  // Cashflow: mark income as cleared or bills as paid/unpaid in either half.
+  function handleCashflowChange(ev) {
     const chk = ev.target;
     if (!(chk instanceof HTMLInputElement)) return;
     if (chk.classList.contains('cleared-check')) {
@@ -1234,39 +1635,38 @@ const DEFAULTS = {
       save(); renderDashboard();
       return;
     }
-  });
-
-  // Cashflow: mark bills as paid/unpaid
-  $('#flow-tbody').addEventListener('change', ev=>{
-    const chk = ev.target;
-    if (!(chk instanceof HTMLInputElement) || !chk.classList.contains('paid-check')) return;
-    const bkey = chk.dataset.bkey;
-    const isPastBill = chk.dataset.past === '1';
-    if (isPastBill) {
-      // Past bill: unchecking = "hasn't pulled yet", checking = default (cleared)
-      if (!chk.checked) {
-        S.unpaidBills[bkey] = true;
+    if (chk.classList.contains('paid-check')) {
+      const bkey = chk.dataset.bkey;
+      const isPastBill = chk.dataset.past === '1';
+      if (isPastBill) {
+        // Past bill: unchecking = "hasn't pulled yet", checking = default (cleared)
+        if (!chk.checked) {
+          S.unpaidBills[bkey] = true;
+        } else {
+          delete S.unpaidBills[bkey];
+        }
       } else {
-        delete S.unpaidBills[bkey];
+        // Future bill: checking = "paid early", unchecking = default (unpaid)
+        if (chk.checked) {
+          S.paidBills[bkey] = true;
+        } else {
+          delete S.paidBills[bkey];
+        }
       }
-    } else {
-      // Future bill: checking = "paid early", unchecking = default (unpaid)
-      if (chk.checked) {
-        S.paidBills[bkey] = true;
-      } else {
-        delete S.paidBills[bkey];
-      }
+      save(); renderDashboard();
     }
-    save(); renderDashboard();
-  });
+  }
+  [$('#flow-tbody'), $('#lookahead-tbody')].forEach(tbody => tbody.addEventListener('change', handleCashflowChange));
 
-  // Cashflow: tap bill amount to edit
-  $('#flow-tbody').addEventListener('click', ev=>{
-    const td = ev.target.closest('.amt-editable');
+  // Cashflow: tap a scheduled income or bill amount to edit only that occurrence.
+  function handleCashflowAmountClick(ev) {
+    const td = ev.target.closest('.amt-editable, .income-amt-editable');
     if (!td || td.querySelector('.bill-amt-edit')) return;
-    const bkey = td.dataset.bkey;
+    const isIncome = td.classList.contains('income-amt-editable');
+    const occurrenceKey = isIncome ? td.dataset.key : td.dataset.bkey;
+    const overrides = isIncome ? S.incomeOverrides : S.billOverrides;
     const baseAmt = td.dataset.base;
-    const curOver = S.billOverrides[bkey];
+    const curOver = overrides[occurrenceKey];
     const curVal = (curOver!=null && curOver!=='') ? curOver : baseAmt;
     const inp = document.createElement('input');
     inp.type = 'number';
@@ -1280,20 +1680,62 @@ const DEFAULTS = {
     inp.focus();
     inp.select();
 
+    let handled = false;
     function commit() {
+      if (handled) return;
+      handled = true;
       const v = inp.value.trim();
       if (v === '' || v === baseAmt || Number(v) === Number(baseAmt)) {
-        delete S.billOverrides[bkey];
+        delete overrides[occurrenceKey];
       } else {
-        S.billOverrides[bkey] = v;
+        overrides[occurrenceKey] = v;
       }
       save(); renderDashboard();
+      if (isIncome) renderSchedule();
     }
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', ev2=>{
       if (ev2.key==='Enter') { ev2.preventDefault(); inp.blur(); }
-      if (ev2.key==='Escape') { delete S.billOverrides[bkey]; save(); renderDashboard(); }
+      if (ev2.key==='Escape') {
+        handled = true;
+        if (curOver!=null && curOver!=='') overrides[occurrenceKey] = curOver;
+        else delete overrides[occurrenceKey];
+        renderDashboard();
+        if (isIncome) renderSchedule();
+      }
     });
+  }
+  [$('#flow-tbody'), $('#lookahead-tbody')].forEach(tbody => tbody.addEventListener('click', handleCashflowAmountClick));
+
+  // The visual upcoming-bills card exposes the same saved controls directly.
+  const upcomingBillsHost = $('#upcoming-bills-summary');
+  upcomingBillsHost.addEventListener('change', ev => {
+    const target = ev.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.classList.contains('overview-paid-check')) {
+      const bkey = target.dataset.bkey;
+      if (target.checked) S.paidBills[bkey] = true;
+      else delete S.paidBills[bkey];
+      save(); renderDashboard();
+    }
+  });
+  upcomingBillsHost.addEventListener('focusout', ev => {
+    const target = ev.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('overview-amount-input')) return;
+    const bkey = target.dataset.bkey;
+    const base = Number(target.dataset.base) || 0;
+    const value = target.value.trim();
+    if (value === '' || Number(value) === base) delete S.billOverrides[bkey];
+    else S.billOverrides[bkey] = value;
+    save(); renderDashboard();
+  });
+  upcomingBillsHost.addEventListener('keydown', ev => {
+    const target = ev.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('overview-amount-input')) return;
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      target.blur();
+    }
   });
 
   // Quick-add toggle / cancel / submit
@@ -1332,6 +1774,40 @@ const DEFAULTS = {
       document.getElementById(`qa-form-${half}`).style.display = 'none';
       renderDashboard();
       renderBillsTable();
+      return;
+    }
+
+    if (ev.target.classList.contains('payment-submit')) {
+      const half = ev.target.dataset.half;
+      const name = document.getElementById(`payment-name-${half}`)?.value.trim();
+      const amt  = document.getElementById(`payment-amt-${half}`)?.value.trim();
+      const date = document.getElementById(`payment-date-${half}`)?.value;
+      if (!name || !amt || !date) { alert('Fill in name, amount, and date.'); return; }
+      S.oneTimePayments.push({
+        id: `payment-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        name,
+        amount: amt,
+        paymentDate: date,
+      });
+      save();
+      document.getElementById(`payment-name-${half}`).value = '';
+      document.getElementById(`payment-amt-${half}`).value = '';
+      document.getElementById(`payment-form-${half}`).style.display = 'none';
+      renderDashboard();
+      renderSchedule();
+      return;
+    }
+
+    const removePaymentButton = ev.target.closest('.flow-remove');
+    if (removePaymentButton) {
+      const paymentId = removePaymentButton.dataset.paymentId;
+      S.oneTimePayments = S.oneTimePayments.filter(payment => payment.id !== paymentId);
+      Object.keys(S.clearedIncome).forEach(key => {
+        if (key.startsWith(`payment-${paymentId}-`)) delete S.clearedIncome[key];
+      });
+      save();
+      renderDashboard();
+      renderSchedule();
       return;
     }
   });
@@ -1437,6 +1913,11 @@ const DEFAULTS = {
     };
     r.readAsText(f);
   });
+
+  syncThemeButton();
+  updateAmbientClock();
+  loadWeather();
+  setInterval(updateAmbientClock, 30000);
 
   try { refresh(); } catch(err) {
     const el=$('#boot-error');
