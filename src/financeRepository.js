@@ -173,6 +173,7 @@ export async function saveOccurrence(supabase, householdId, occurrence) {
 
 export async function patchOccurrence(supabase, id, changes) {
   const patch = {};
+  if ('date' in changes) patch.scheduled_on = changes.date;
   if ('amount' in changes) patch.expected_amount = numberOrZero(changes.amount);
   if ('actualAmount' in changes) patch.actual_amount = changes.actualAmount == null ? null : numberOrZero(changes.actualAmount);
   if ('status' in changes) patch.status = changes.status;
@@ -191,6 +192,14 @@ export async function patchOccurrence(supabase, id, changes) {
     .single();
   throwIfError(error);
   return occurrenceFromRow(data);
+}
+
+export async function deleteOccurrence(supabase, id) {
+  const { error } = await supabase
+    .from('cashflow_occurrences')
+    .delete()
+    .eq('id', id);
+  throwIfError(error);
 }
 
 export async function updateFutureSourceAmounts(supabase, {

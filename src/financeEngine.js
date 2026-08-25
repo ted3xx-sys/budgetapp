@@ -215,6 +215,7 @@ export function billScheduleGuardIdentities({
     occurrence.type === 'bill'
     && String(occurrence.sourceId) === String(resolvedSourceId)
     && (occurrence.status === 'settled'
+      || (occurrence.status === 'planned' && occurrence.adjusted)
       || (occurrence.status === 'skipped' && occurrence.category !== supersededCategory)),
   ).map(occurrence => ({
     ...occurrence,

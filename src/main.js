@@ -14,6 +14,7 @@ import {
   summarizeCalendarMonth,
 } from './financeEngine.js';
 import {
+  deleteOccurrence as deleteOccurrenceRepository,
   loadFinanceLedger,
   materializeOccurrences as materializeOccurrencesRepository,
   patchOccurrence as patchOccurrenceRepository,
@@ -133,6 +134,9 @@ const DEFAULTS = {
 
   const materializeOccurrences = (...args) => withFinanceMutation(
     () => materializeOccurrencesRepository(...args),
+  );
+  const deleteOccurrence = (...args) => withFinanceMutation(
+    () => deleteOccurrenceRepository(...args),
   );
   const patchOccurrence = (...args) => withFinanceMutation(
     () => patchOccurrenceRepository(...args),
@@ -729,6 +733,7 @@ const DEFAULTS = {
 
     const stale = sourceRows.filter(occurrence =>
       occurrence.status === 'planned'
+      && !occurrence.adjusted
       && !expected.has(scheduleIdentity(occurrence))
       && staleEligible(occurrence),
     );
@@ -835,6 +840,7 @@ const DEFAULTS = {
 
     const stale = loaded.filter(occurrence =>
       occurrence.status === 'planned'
+      && !occurrence.adjusted
       && occurrence.type === 'income'
       && dateInRange(occurrence.date, safeStartDate, endDateExclusive)
       && managedSources.has(sourceIdentity(occurrence.type, occurrence.sourceKind, occurrence.sourceId))
@@ -1169,6 +1175,137 @@ const DEFAULTS = {
     else delete overrides[key];
     const column = occurrence.type === 'income' ? 'income_overrides' : 'bill_overrides';
     await saveSettingsPatch({ [column]: overrides });
+  }
+
+  async function saveOccurrenceEdits(occurrence, { label, amount, date }) {
+    const isOneTimeIncome = occurrence.sourceKind === 'one_time_income';
+    const isOneTimeBill = occurrence.sourceKind === 'one_time_bill';
+
+    if (isOneTimeIncome) {
+      const payment = S.oneTimePayments.find(item => String(item.id) === String(occurrence.sourceId));
+      if (payment) {
+        const updatedPayment = { ...payment, name: label, amount, paymentDate: date };
+        await savePaymentRow(updatedPayment);
+        Object.assign(payment, updatedPayment);
+      }
+    } else if (isOneTimeBill) {
+      const bill = S.bills.find(item => String(item.id) === String(occurrence.sourceId));
+      if (bill) {
+        const updatedBill = { ...bill, name: label, amount, dueDate: date };
+        await saveBillRow(updatedBill);
+        Object.assign(bill, updatedBill);
+      }
+    }
+
+    if (date !== occurrence.date && !isOneTimeIncome && !isOneTimeBill) {
+      const guard = await patchOccurrence(supabase, occurrence.id, {
+        status: 'skipped',
+        actualAmount: null,
+        settledAt: null,
+        category: SCHEDULE_SUPERSEDED_CATEGORY,
+        inferred: false,
+      });
+      replaceFinanceOccurrence(guard);
+      try {
+        const moved = await saveOccurrence(supabase, S.finance.household.id, {
+          ...occurrence,
+          id: undefined,
+          date,
+          label,
+          amount,
+          actualAmount: null,
+          status: 'planned',
+          settledAt: null,
+          adjusted: true,
+          inferred: false,
+          category: occurrence.category === SCHEDULE_SUPERSEDED_CATEGORY ? '' : occurrence.category,
+        });
+        replaceFinanceOccurrence(moved);
+      } catch (error) {
+        const restored = await patchOccurrence(supabase, occurrence.id, {
+          status: 'planned',
+          category: occurrence.category,
+          inferred: false,
+        });
+        replaceFinanceOccurrence(restored);
+        throw error;
+      }
+      return;
+    }
+
+    const updated = await patchOccurrence(supabase, occurrence.id, {
+      date,
+      label,
+      amount,
+      actualAmount: null,
+      adjusted: true,
+      inferred: false,
+    });
+    replaceFinanceOccurrence(updated);
+  }
+
+  function openOccurrenceEditor(occurrence) {
+    document.querySelector('.occurrence-edit-dialog')?.remove();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'occurrence-edit-dialog';
+    dialog.innerHTML = `
+      <form method="dialog" class="occurrence-edit-form">
+        <div class="occurrence-edit-heading">
+          <div>
+            <strong>Edit this occurrence</strong>
+            <small>${['one_time_bill', 'one_time_income'].includes(occurrence.sourceKind)
+              ? 'Updates this one-time item'
+              : 'Only this date — the recurring setup stays unchanged'}</small>
+          </div>
+          <button type="button" class="occurrence-edit-close" aria-label="Close">×</button>
+        </div>
+        <label>Title<input name="label" type="text" required value="${esc(occurrence.label)}"></label>
+        <div class="occurrence-edit-grid">
+          <label>Amount<input name="amount" type="number" min="0" step="0.01" required value="${Number(occurrence.actualAmount ?? occurrence.amount)}"></label>
+          <label>${occurrence.type === 'bill' ? 'Pull / due date' : 'Payment date'}<input name="date" type="date" required value="${esc(occurrence.date)}"></label>
+        </div>
+        <div class="occurrence-edit-actions">
+          <button type="button" class="btn ghost occurrence-edit-cancel">Cancel</button>
+          <button type="submit" class="btn occurrence-edit-save">Save changes</button>
+        </div>
+      </form>`;
+    document.body.appendChild(dialog);
+    const close = () => dialog.close();
+    dialog.querySelector('.occurrence-edit-close').addEventListener('click', close);
+    dialog.querySelector('.occurrence-edit-cancel').addEventListener('click', close);
+    dialog.addEventListener('close', () => dialog.remove());
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) close();
+    });
+    dialog.querySelector('form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      if (!form.reportValidity()) return;
+      const saveButton = form.querySelector('.occurrence-edit-save');
+      const edits = {
+        label: form.elements.label.value.trim(),
+        amount: Number(form.elements.amount.value),
+        date: form.elements.date.value,
+      };
+      if (!edits.label || !Number.isFinite(edits.amount) || edits.amount < 0 || !edits.date) return;
+      saveButton.disabled = true;
+      try {
+        await saveOccurrenceEdits(occurrence, edits);
+        close();
+        renderWeek();
+        renderDashboard();
+        renderMonthlyReport();
+        renderBillsTable();
+        renderSchedule();
+      } catch (error) {
+        console.error('edit occurrence error:', error);
+        alert('Those changes did not save. Please try again.');
+        saveButton.disabled = false;
+      }
+    });
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+    dialog.querySelector('input[name="label"]').focus();
   }
 
   async function syncBillOccurrences(bill, scheduleChanged = false) {
@@ -2071,12 +2208,15 @@ const DEFAULTS = {
         occurrence.adjusted ? 'Adjusted' : '',
         occurrence.inferred ? 'Estimated history' : '',
       ].filter(Boolean).join(' · ');
-      const removeButton = occurrence.status !== 'settled' && ['one_time_bill', 'one_time_income'].includes(occurrence.sourceKind)
-        ? `<button type="button" class="flow-remove occurrence-remove" data-occurrence-id="${esc(occurrence.id)}" title="Remove this one-time item">Remove</button>`
+      const isOneTime = ['one_time_bill', 'one_time_income'].includes(occurrence.sourceKind);
+      const editButton = occurrence.status !== 'settled' && !skipped
+        ? `<button type="button" class="flow-remove occurrence-edit" data-occurrence-id="${esc(occurrence.id)}" title="Edit this occurrence">Edit</button>`
+        : '';
+      const removeButton = occurrence.status !== 'settled' && isOneTime
+        ? `<button type="button" class="flow-remove occurrence-remove" data-occurrence-id="${esc(occurrence.id)}" title="Permanently delete this one-time item">Remove</button>`
         : '';
       const skipButton = S.finance.available
         && ['planned', 'skipped'].includes(occurrence.status)
-        && !['one_time_bill', 'one_time_income'].includes(occurrence.sourceKind)
         ? `<button type="button" class="flow-remove occurrence-skip" data-occurrence-id="${esc(occurrence.id)}" title="${skipped ? 'Put this occurrence back into the plan' : 'Exclude this occurrence without marking it paid'}">${skipped ? 'Restore' : 'Skip'}</button>`
         : '';
       const checkbox = interactive && !skipped
@@ -2094,7 +2234,7 @@ const DEFAULTS = {
       tr.dataset.occurrenceId = occurrence.id;
       tr.innerHTML = `
         <td>
-          <div class="flow-row-name">${checkbox}${occurrenceTagHtml(occurrence)} <span>${esc(occurrence.label)}</span>${removeButton}${skipButton}</div>
+          <div class="flow-row-name">${checkbox}${occurrenceTagHtml(occurrence)} <span>${esc(occurrence.label)}</span>${editButton}${skipButton}${removeButton}</div>
           <div class="row-meta">${fmtLong(parseIso(occurrence.date))} · ${statusText}${flags ? ` · ${flags}` : ''}</div>
         </td>
         ${amountCell}
@@ -3065,6 +3205,13 @@ const DEFAULTS = {
 
   // Quick-add toggle / cancel / submit
   document.addEventListener('click', async ev=>{
+    const editButton = ev.target.closest('.occurrence-edit');
+    if (editButton) {
+      const occurrence = occurrenceById(editButton.dataset.occurrenceId);
+      if (occurrence?.status === 'planned') openOccurrenceEditor(occurrence);
+      return;
+    }
+
     const skipButton = ev.target.closest('.occurrence-skip');
     if (skipButton) {
       if (!S.finance.available) return;
@@ -3219,28 +3366,23 @@ const DEFAULTS = {
     if (removeOccurrenceButton) {
       const occurrence = occurrenceById(removeOccurrenceButton.dataset.occurrenceId);
       if (!occurrence || occurrence.status === 'settled') return;
+      if (!confirm(`Permanently remove “${occurrence.label || 'this one-time item'}”?`)) return;
+      removeOccurrenceButton.disabled = true;
       try {
-        if (S.finance.available) {
-          const skipped = await patchOccurrence(supabase, occurrence.id, {
-            status: 'skipped',
-            actualAmount: null,
-            settledAt: null,
-            inferred: false,
-          });
-          replaceFinanceOccurrence(skipped);
-        }
         if (occurrence.sourceKind === 'one_time_income') {
           const paymentId = occurrence.paymentId || occurrence.sourceId;
-          S.oneTimePayments = S.oneTimePayments.filter(payment => payment.id !== paymentId);
           await removePaymentRow(paymentId);
+          S.oneTimePayments = S.oneTimePayments.filter(payment => payment.id !== paymentId);
         } else if (occurrence.sourceKind === 'one_time_bill') {
           const billId = occurrence.billId || occurrence.sourceId;
           const bill = S.bills.find(item => item.id === billId);
           if (bill) {
-            S.bills = S.bills.filter(item => item.id !== billId);
             await removeBillRow(bill);
+            S.bills = S.bills.filter(item => item.id !== billId);
           }
         }
+        if (S.finance.available) await deleteOccurrence(supabase, occurrence.id);
+        S.finance.occurrences = S.finance.occurrences.filter(item => item.id !== occurrence.id);
         renderDashboard();
         renderMonthlyReport();
         renderBillsTable();
@@ -3248,6 +3390,8 @@ const DEFAULTS = {
       } catch (error) {
         console.error('remove one-time occurrence error:', error);
         alert('That one-time item could not be removed. Please try again.');
+      } finally {
+        removeOccurrenceButton.disabled = false;
       }
       return;
     }

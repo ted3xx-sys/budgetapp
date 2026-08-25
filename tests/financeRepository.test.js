@@ -2,9 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  deleteOccurrence,
   reloadOccurrences,
   updateFutureSourceAmounts,
 } from '../src/financeRepository.js';
+
+test('deleting an occurrence targets only its id', async () => {
+  const calls = [];
+  const supabase = {
+    from(table) {
+      calls.push(['from', table]);
+      const query = {
+        delete() { calls.push(['delete']); return query; },
+        eq(column, value) {
+          calls.push(['eq', column, value]);
+          return Promise.resolve({ error: null });
+        },
+      };
+      return query;
+    },
+  };
+
+  await deleteOccurrence(supabase, 'occurrence-1');
+  assert.deepEqual(calls, [
+    ['from', 'cashflow_occurrences'],
+    ['delete'],
+    ['eq', 'id', 'occurrence-1'],
+  ]);
+});
 
 function occurrenceRow(index) {
   return {
