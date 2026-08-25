@@ -1178,70 +1178,121 @@ const DEFAULTS = {
   }
 
   async function saveOccurrenceEdits(occurrence, { label, amount, date }) {
-    const isOneTimeIncome = occurrence.sourceKind === 'one_time_income';
-    const isOneTimeBill = occurrence.sourceKind === 'one_time_bill';
+    return withFinanceMutation(async () => {
+      const isOneTimeIncome = occurrence.sourceKind === 'one_time_income';
+      const isOneTimeBill = occurrence.sourceKind === 'one_time_bill';
 
-    if (isOneTimeIncome) {
-      const payment = S.oneTimePayments.find(item => String(item.id) === String(occurrence.sourceId));
-      if (payment) {
-        const updatedPayment = { ...payment, name: label, amount, paymentDate: date };
-        await savePaymentRow(updatedPayment);
-        Object.assign(payment, updatedPayment);
+      if (isOneTimeIncome) {
+        const payment = S.oneTimePayments.find(item => String(item.id) === String(occurrence.sourceId));
+        if (payment) {
+          const updatedPayment = { ...payment, name: label, amount, paymentDate: date };
+          await savePaymentRow(updatedPayment);
+          Object.assign(payment, updatedPayment);
+        }
+      } else if (isOneTimeBill) {
+        const bill = S.bills.find(item => String(item.id) === String(occurrence.sourceId));
+        if (bill) {
+          const updatedBill = { ...bill, name: label, amount, dueDate: date };
+          await saveBillRow(updatedBill);
+          Object.assign(bill, updatedBill);
+        }
       }
-    } else if (isOneTimeBill) {
-      const bill = S.bills.find(item => String(item.id) === String(occurrence.sourceId));
-      if (bill) {
-        const updatedBill = { ...bill, name: label, amount, dueDate: date };
-        await saveBillRow(updatedBill);
-        Object.assign(bill, updatedBill);
-      }
-    }
 
-    if (date !== occurrence.date && !isOneTimeIncome && !isOneTimeBill) {
-      const guard = await patchOccurrence(supabase, occurrence.id, {
-        status: 'skipped',
+      if (date !== occurrence.date && !isOneTimeIncome && !isOneTimeBill) {
+        const guard = await patchOccurrence(supabase, occurrence.id, {
+          status: 'skipped',
+          actualAmount: null,
+          settledAt: null,
+          category: SCHEDULE_SUPERSEDED_CATEGORY,
+          inferred: false,
+        });
+        replaceFinanceOccurrence(guard);
+        try {
+          const moved = await saveOccurrence(supabase, S.finance.household.id, {
+            ...occurrence,
+            id: undefined,
+            date,
+            label,
+            amount,
+            actualAmount: null,
+            status: 'planned',
+            settledAt: null,
+            adjusted: true,
+            inferred: false,
+            category: occurrence.category === SCHEDULE_SUPERSEDED_CATEGORY ? '' : occurrence.category,
+          });
+          replaceFinanceOccurrence(moved);
+        } catch (error) {
+          const restored = await patchOccurrence(supabase, occurrence.id, {
+            status: 'planned',
+            category: occurrence.category,
+            inferred: false,
+          });
+          replaceFinanceOccurrence(restored);
+          throw error;
+        }
+        return;
+      }
+
+      const updated = await patchOccurrence(supabase, occurrence.id, {
+        date,
+        label,
+        amount,
         actualAmount: null,
-        settledAt: null,
-        category: SCHEDULE_SUPERSEDED_CATEGORY,
+        adjusted: true,
         inferred: false,
       });
-      replaceFinanceOccurrence(guard);
-      try {
-        const moved = await saveOccurrence(supabase, S.finance.household.id, {
-          ...occurrence,
-          id: undefined,
-          date,
-          label,
-          amount,
-          actualAmount: null,
-          status: 'planned',
-          settledAt: null,
-          adjusted: true,
-          inferred: false,
-          category: occurrence.category === SCHEDULE_SUPERSEDED_CATEGORY ? '' : occurrence.category,
-        });
-        replaceFinanceOccurrence(moved);
-      } catch (error) {
-        const restored = await patchOccurrence(supabase, occurrence.id, {
-          status: 'planned',
-          category: occurrence.category,
-          inferred: false,
-        });
-        replaceFinanceOccurrence(restored);
-        throw error;
-      }
-      return;
-    }
-
-    const updated = await patchOccurrence(supabase, occurrence.id, {
-      date,
-      label,
-      amount,
-      actualAmount: null,
-      adjusted: true,
-      inferred: false,
+      replaceFinanceOccurrence(updated);
     });
-    replaceFinanceOccurrence(updated);
+  }
+
+  async function saveOneTimeBill(bill, onSourceSaved = () => {}) {
+    return withFinanceMutation(async () => {
+      await saveBillRow(bill);
+      onSourceSaved();
+      if (!S.finance.available) return null;
+      const created = await saveOccurrence(supabase, S.finance.household.id, {
+        type: 'bill', sourceKind: 'one_time_bill', sourceId: bill.id,
+        date: bill.dueDate, label: bill.name, category: '', amount: bill.amount,
+        status: 'planned', inferred: false, adjusted: false, autodraft: false,
+      });
+      replaceFinanceOccurrence(created);
+      return created;
+    });
+  }
+
+  async function saveOneTimePayment(payment, onSourceSaved = () => {}) {
+    return withFinanceMutation(async () => {
+      await savePaymentRow(payment);
+      onSourceSaved();
+      if (!S.finance.available) return null;
+      const created = await saveOccurrence(supabase, S.finance.household.id, {
+        type: 'income', sourceKind: 'one_time_income', sourceId: payment.id,
+        date: payment.paymentDate, label: payment.name, category: '', amount: payment.amount,
+        status: 'planned', inferred: false, adjusted: false,
+      });
+      replaceFinanceOccurrence(created);
+      return created;
+    });
+  }
+
+  async function removeOneTimeOccurrence(occurrence) {
+    return withFinanceMutation(async () => {
+      if (occurrence.sourceKind === 'one_time_income') {
+        const paymentId = occurrence.paymentId || occurrence.sourceId;
+        await removePaymentRow(paymentId);
+        S.oneTimePayments = S.oneTimePayments.filter(payment => payment.id !== paymentId);
+      } else if (occurrence.sourceKind === 'one_time_bill') {
+        const billId = occurrence.billId || occurrence.sourceId;
+        const bill = S.bills.find(item => item.id === billId);
+        if (bill) {
+          await removeBillRow(bill);
+          S.bills = S.bills.filter(item => item.id !== billId);
+        }
+      }
+      if (S.finance.available) await deleteOccurrence(supabase, occurrence.id);
+      S.finance.occurrences = S.finance.occurrences.filter(item => item.id !== occurrence.id);
+    });
   }
 
   function openOccurrenceEditor(occurrence) {
@@ -3274,16 +3325,7 @@ const DEFAULTS = {
       S.bills.push(bill);
       let sourceSaved = false;
       try {
-        await saveBillRow(bill);
-        sourceSaved = true;
-        if (S.finance.available) {
-          const created = await saveOccurrence(supabase, S.finance.household.id, {
-            type: 'bill', sourceKind: 'one_time_bill', sourceId: bill.id,
-            date, label: name, category: '', amount: amt,
-            status: 'planned', inferred: false, adjusted: false, autodraft: false,
-          });
-          replaceFinanceOccurrence(created);
-        }
+        await saveOneTimeBill(bill, () => { sourceSaved = true; });
       } catch (error) {
         S.bills = S.bills.filter(item => item.id !== bill.id);
         console.error('add one-time bill error:', error);
@@ -3328,16 +3370,7 @@ const DEFAULTS = {
       S.oneTimePayments.push(payment);
       let sourceSaved = false;
       try {
-        await savePaymentRow(payment);
-        sourceSaved = true;
-        if (S.finance.available) {
-          const created = await saveOccurrence(supabase, S.finance.household.id, {
-            type: 'income', sourceKind: 'one_time_income', sourceId: payment.id,
-            date, label: name, category: '', amount: amt,
-            status: 'planned', inferred: false, adjusted: false,
-          });
-          replaceFinanceOccurrence(created);
-        }
+        await saveOneTimePayment(payment, () => { sourceSaved = true; });
       } catch (error) {
         S.oneTimePayments = S.oneTimePayments.filter(item => item.id !== payment.id);
         console.error('add one-time payment error:', error);
@@ -3369,20 +3402,7 @@ const DEFAULTS = {
       if (!confirm(`Permanently remove “${occurrence.label || 'this one-time item'}”?`)) return;
       removeOccurrenceButton.disabled = true;
       try {
-        if (occurrence.sourceKind === 'one_time_income') {
-          const paymentId = occurrence.paymentId || occurrence.sourceId;
-          await removePaymentRow(paymentId);
-          S.oneTimePayments = S.oneTimePayments.filter(payment => payment.id !== paymentId);
-        } else if (occurrence.sourceKind === 'one_time_bill') {
-          const billId = occurrence.billId || occurrence.sourceId;
-          const bill = S.bills.find(item => item.id === billId);
-          if (bill) {
-            await removeBillRow(bill);
-            S.bills = S.bills.filter(item => item.id !== billId);
-          }
-        }
-        if (S.finance.available) await deleteOccurrence(supabase, occurrence.id);
-        S.finance.occurrences = S.finance.occurrences.filter(item => item.id !== occurrence.id);
+        await removeOneTimeOccurrence(occurrence);
         renderDashboard();
         renderMonthlyReport();
         renderBillsTable();
