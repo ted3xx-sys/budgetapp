@@ -87,9 +87,9 @@
 
         <div class="money-stat-grid">
           <div class="money-stat" id="snapshot-now-card">
-            <div class="hero-label">Available now</div>
+            <div class="hero-label">Bank now</div>
             <div class="hero-value" id="snapshot-now">—</div>
-            <div class="hero-sub" id="snapshot-now-sub"></div>
+            <div class="hero-sub" id="snapshot-now-sub">Latest saved bank snapshot</div>
           </div>
           <div class="money-stat" id="snapshot-next-card">
             <div class="hero-label" id="snapshot-next-label"><span>Seven days out</span></div>
@@ -211,65 +211,122 @@
         <div>
           <div class="workspace-kicker">Household finances</div>
           <h1>Money overview</h1>
-          <div class="workspace-date">A visual read first. Detailed cashflow is below when you need it.</div>
+          <div class="workspace-date">Current cash first, the next cycle second, and exact cashflow when you need it.</div>
         </div>
-        <div class="cycle-chip">
-          <span id="cycle-label">Current half</span>
-          <strong id="cycle-range">—</strong>
+        <div class="cycle-chip cycle-rule-chip">
+          <span>Budget rhythm</span>
+          <strong>Payday to payday</strong>
         </div>
       </div>
 
       <div class="finance-dashboard">
-        <section class="finance-card commitment-card" id="hero-bills-card">
+        <section class="finance-card cycle-position-card position-card" id="hero-safe-card">
           <div class="finance-card-head">
             <div>
-              <div class="panel-kicker">This half</div>
-              <h2>Income committed to bills</h2>
+              <div class="panel-kicker" id="cycle-label">Current pay cycle</div>
+              <h2>Cash position</h2>
+              <div class="finance-card-range" id="cycle-range">—</div>
             </div>
             <span class="finance-status" id="budget-status">On track</span>
           </div>
-          <div class="commitment-visual">
-            <div class="budget-ring" id="budget-ring">
-              <div class="budget-ring-center">
-                <strong id="period-bills-total">—</strong>
-                <span>total bills</span>
+
+          <div class="cycle-equation" aria-label="Bank balance plus incoming money minus remaining commitments equals uncommitted money">
+            <div class="cycle-equation-cell bank-balance-field">
+              <label class="cycle-metric-label" for="input-balance">Bank now</label>
+              <span class="bank-input-wrap"><span>$</span><input id="input-balance" type="number" inputmode="decimal" step="0.01" placeholder="0.00" aria-label="Current bank balance" /></span>
+              <div class="bank-snapshot-meta">
+                <small id="balance-as-of">Last update not recorded</small>
+                <button type="button" class="bank-update-btn" id="balance-save">Update bank balance</button>
               </div>
             </div>
-            <div class="finance-legend">
-              <div><span class="legend-dot income-dot"></span><span>Income this half</span><strong id="period-income">—</strong></div>
-              <div><span class="legend-dot bills-dot"></span><span>Bills still due</span><strong id="hero-bills-left">—</strong></div>
-              <div class="legend-detail" id="hero-bills-sub"></div>
+
+            <span class="cycle-operator" aria-hidden="true">＋</span>
+
+            <div class="cycle-equation-cell" id="hero-income-card">
+              <span class="cycle-metric-label">Income still coming</span>
+              <strong id="hero-income-pending">—</strong>
+              <small>Before this cycle ends</small>
             </div>
+
+            <span class="cycle-operator" aria-hidden="true">−</span>
+
+            <div class="cycle-equation-cell">
+              <span class="cycle-metric-label">Remaining commitments</span>
+              <strong id="hero-bills-left">—</strong>
+              <small>Known bills not yet reflected</small>
+            </div>
+
+            <span class="cycle-operator equals" aria-hidden="true">＝</span>
+
+            <div class="cycle-equation-cell cycle-equation-result primary-position">
+              <span class="cycle-metric-label">Uncommitted by cycle end</span>
+              <strong id="hero-safe">—</strong>
+              <small>After known bills only</small>
+            </div>
+          </div>
+
+          <div class="cycle-support-grid">
+            <div>
+              <strong>Forecast check</strong>
+              <div id="hero-safe-sub">• Waiting for the current cycle</div>
+            </div>
+            <div>
+              <strong>Income status</strong>
+              <div id="hero-income-sub">• Waiting for scheduled income</div>
+            </div>
+            <div>
+              <strong>Commitment status</strong>
+              <div id="hero-bills-sub">• Waiting for scheduled bills</div>
+            </div>
+            <label class="reserve-floor-field" for="reserve-floor">
+              <strong>Reserve floor</strong>
+              <span class="reserve-input-wrap"><span>$</span><input id="reserve-floor" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" /></span>
+              <small>Flags a tight cycle; it is not another bill.</small>
+            </label>
+          </div>
+
+          <div class="finance-bars">
+            <div><span>Income received / scheduled</span><i><b id="budget-income-bar"></b></i></div>
+            <div><span>Commitments cleared / scheduled</span><i><b id="budget-bills-bar"></b></i></div>
+          </div>
+
+          <!-- Transitional hooks keep the current renderer safe while the payday-cycle logic is wired in. -->
+          <div class="legacy-finance-hooks" aria-hidden="true">
+            <span id="hero-bills-card"></span>
+            <span id="period-income"></span>
+            <span id="period-bills-total"></span>
+            <span id="budget-ring"></span>
           </div>
         </section>
 
-        <section class="finance-card position-card" id="hero-safe-card">
+        <section class="finance-card next-cycle-card" id="next-cycle-card">
           <div class="finance-card-head">
             <div>
-              <div class="panel-kicker">Cash position</div>
-              <h2>What is actually available</h2>
+              <div class="panel-kicker">Next cycle heads-up</div>
+              <h2>What the next payday cycle brings</h2>
+              <div class="finance-card-range" id="next-cycle-range">—</div>
             </div>
+            <span class="finance-status neutral" id="next-cycle-status">Forecast</span>
           </div>
-          <div class="position-grid">
-            <label class="bank-balance-field">
-              <span>In the bank now</span>
-              <span class="bank-input-wrap"><span>$</span><input id="input-balance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" /></span>
-            </label>
-            <div class="position-metric primary-position">
-              <span>Uncommitted</span>
-              <strong id="hero-safe">—</strong>
-              <div id="hero-safe-sub"></div>
-            </div>
-            <div class="position-metric" id="hero-income-card">
-              <span>Income still coming</span>
-              <strong id="hero-income-pending">—</strong>
-              <div id="hero-income-sub"></div>
-            </div>
+
+          <div class="next-cycle-start">
+            <span>Projected starting balance</span>
+            <strong id="next-cycle-start">—</strong>
           </div>
-          <div class="finance-bars">
-            <div><span>Income received / scheduled</span><i><b id="budget-income-bar"></b></i></div>
-            <div><span>Bills cleared / total</span><i><b id="budget-bills-bar"></b></i></div>
+
+          <dl class="next-cycle-math">
+            <div><dt>Scheduled income</dt><dd id="next-cycle-income">—</dd></div>
+            <div><dt>Still-open commitments</dt><dd id="next-cycle-bills">—</dd></div>
+            <div class="next-cycle-net"><dt>Cycle net</dt><dd id="next-cycle-net">—</dd></div>
+            <div class="next-cycle-reserve"><dt>Keep reserved for next cycle</dt><dd id="next-cycle-reserve">—</dd></div>
+            <div class="next-cycle-ending"><dt>Projected ending balance</dt><dd id="next-cycle-end">—</dd></div>
+          </dl>
+
+          <div class="next-cycle-floor">
+            <span>Lowest forecast</span>
+            <strong id="next-cycle-floor">—</strong>
           </div>
+          <p class="next-cycle-note">Carries the current cycle forward, then applies the next cycle’s dated income and commitments.</p>
         </section>
 
         <section class="finance-card upcoming-summary-card">
@@ -281,7 +338,21 @@
             <span class="finance-status neutral">Tap amount to adjust</span>
           </div>
           <div class="upcoming-bills-summary" id="upcoming-bills-summary"></div>
-          <div class="upcoming-help">Check a bill when it is paid early. Adjustments apply only to that occurrence.</div>
+          <div class="upcoming-help">Only check a bill after its debit is already included in Bank now. If needed, update Bank now first. Adjustments apply only to that occurrence.</div>
+        </section>
+
+        <section class="finance-card budget-forecast-card" id="budget-forecast-card">
+          <div class="finance-card-head">
+            <div>
+              <div class="panel-kicker">28-day outlook</div>
+              <h2 id="budget-forecast-title">Balance forecast</h2>
+            </div>
+            <span class="finance-status neutral" id="budget-forecast-range">Current + next cycle</span>
+          </div>
+          <div class="budget-forecast-chart" id="budget-forecast-chart" role="img" aria-label="Projected bank balance across the current and next payday cycles">
+            <div class="forecast-chart-empty">Your dated income and commitments will draw the forecast here.</div>
+          </div>
+          <div class="budget-forecast-caption" id="budget-forecast-caption">The zero line and lowest forecast will stay visible at a glance.</div>
         </section>
       </div>
 
@@ -295,7 +366,7 @@
 
       <div class="cashflow-grid">
       <div class="card">
-        <div class="card-title" id="flow-title">Running cashflow — this half</div>
+        <div class="card-title" id="flow-title">Running cashflow — current cycle</div>
         <div class="flow-wrap">
           <table class="flow-table">
             <thead>
@@ -315,14 +386,14 @@
           </div>
           <div class="quick-add-form" id="qa-form-cur" style="display:none">
             <input type="text"   class="qa-inp name" id="qa-name-cur" placeholder="Bill name" />
-            <input type="number" class="qa-inp amt"  id="qa-amt-cur"  placeholder="0.00" min="0" step="0.01" />
+            <input type="number" class="qa-inp amt"  id="qa-amt-cur"  placeholder="0.00" min="0.01" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="qa-date-cur" />
             <button type="button" class="btn qa-submit" data-half="cur">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="qa-form-cur">✕</button>
           </div>
           <div class="quick-add-form" id="payment-form-cur" style="display:none">
             <input type="text"   class="qa-inp name" id="payment-name-cur" placeholder="Payment name" />
-            <input type="number" class="qa-inp amt"  id="payment-amt-cur"  placeholder="0.00" min="0" step="0.01" />
+            <input type="number" class="qa-inp amt"  id="payment-amt-cur"  placeholder="0.00" min="0.01" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="payment-date-cur" />
             <button type="button" class="btn payment-submit" data-half="cur">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="payment-form-cur">✕</button>
@@ -330,9 +401,9 @@
         </div>
       </div>
 
-      <!-- Look-ahead: next half -->
+      <!-- Look-ahead: next payday cycle -->
       <div class="card" id="lookahead-card">
-        <div class="card-title" id="lookahead-title">Look-ahead — next half</div>
+        <div class="card-title" id="lookahead-title">Look-ahead — next cycle</div>
         <div class="flow-wrap">
           <table class="flow-table">
             <thead>
@@ -352,14 +423,14 @@
           </div>
           <div class="quick-add-form" id="qa-form-nxt" style="display:none">
             <input type="text"   class="qa-inp name" id="qa-name-nxt" placeholder="Bill name" />
-            <input type="number" class="qa-inp amt"  id="qa-amt-nxt"  placeholder="0.00" min="0" step="0.01" />
+            <input type="number" class="qa-inp amt"  id="qa-amt-nxt"  placeholder="0.00" min="0.01" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="qa-date-nxt" />
             <button type="button" class="btn qa-submit" data-half="nxt">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="qa-form-nxt">✕</button>
           </div>
           <div class="quick-add-form" id="payment-form-nxt" style="display:none">
             <input type="text"   class="qa-inp name" id="payment-name-nxt" placeholder="Payment name" />
-            <input type="number" class="qa-inp amt"  id="payment-amt-nxt"  placeholder="0.00" min="0" step="0.01" />
+            <input type="number" class="qa-inp amt"  id="payment-amt-nxt"  placeholder="0.00" min="0.01" step="0.01" />
             <input type="date"   class="qa-inp dat"  id="payment-date-nxt" />
             <button type="button" class="btn payment-submit" data-half="nxt">Add</button>
             <button type="button" class="btn ghost qa-cancel" data-target="payment-form-nxt">✕</button>
@@ -372,8 +443,109 @@
 
       <!-- ═══ BILLS sub-view ═══════════════════════════ -->
       <div id="sub-bills" class="sub-view">
-      <div class="card totals mt">
-        <div class="card-title">📊 Monthly totals</div>
+      <div class="bills-report-head">
+        <div>
+          <div class="workspace-kicker">Calendar month</div>
+          <h1>Monthly bill report</h1>
+          <div class="workspace-date">Income, commitments, and what remains—without mixing in another pay cycle.</div>
+        </div>
+        <div class="month-selector-wrap">
+          <div class="month-selector" role="group" aria-label="Choose report month">
+            <button type="button" class="month-nav-btn" id="month-prev" aria-label="Previous month">‹</button>
+            <div class="month-selector-label">
+              <strong id="month-report-label">Current month</strong>
+              <span id="month-report-range">—</span>
+            </div>
+            <button type="button" class="month-nav-btn" id="month-next" aria-label="Next month">›</button>
+          </div>
+          <button type="button" class="text-btn month-current-btn" id="month-current">Jump to this month</button>
+        </div>
+      </div>
+
+      <section class="card monthly-report-card">
+        <div class="finance-card-head">
+          <div>
+            <div class="panel-kicker">Monthly summary</div>
+            <h2>Income and recurring commitments</h2>
+          </div>
+          <span class="finance-status neutral" id="month-report-status">Planned view</span>
+        </div>
+
+        <div class="monthly-metric-grid">
+          <article class="monthly-metric income-metric">
+            <span>Scheduled income</span>
+            <strong id="month-income">—</strong>
+            <small id="month-income-detail">For the selected month</small>
+          </article>
+          <article class="monthly-metric bills-metric">
+            <span>Recurring commitments</span>
+            <strong id="month-bills">—</strong>
+            <small id="month-bills-detail">Bills dated this month</small>
+          </article>
+          <article class="monthly-metric margin-metric">
+            <span>Monthly margin</span>
+            <strong id="month-margin">—</strong>
+            <small id="month-margin-detail">Income minus commitments</small>
+          </article>
+          <article class="monthly-metric due-metric">
+            <span>Still due</span>
+            <strong id="month-bills-due">—</strong>
+            <small id="month-bills-due-detail">Not yet reflected in bank</small>
+          </article>
+        </div>
+
+        <div class="monthly-report-grid">
+          <section class="monthly-progress-panel" aria-labelledby="monthly-progress-title">
+            <div class="mini-section-head">
+              <strong id="monthly-progress-title">Month progress</strong>
+              <span>Exact dollars, not a score</span>
+            </div>
+            <div class="monthly-progress-row">
+              <div><span>Income received</span><strong><span id="month-income-received">—</span> <small>of</small> <span id="month-income-total">—</span></strong></div>
+              <i><b id="month-income-progress"></b></i>
+            </div>
+            <div class="monthly-progress-row">
+              <div><span>Commitments cleared</span><strong><span id="month-bills-cleared">—</span> <small>of</small> <span id="month-bills-total">—</span></strong></div>
+              <i><b id="month-bills-progress"></b></i>
+            </div>
+          </section>
+
+          <section class="monthly-category-panel" aria-labelledby="monthly-category-title">
+            <div class="mini-section-head">
+              <strong id="monthly-category-title">Commitments by category</strong>
+              <span>Share of this month’s bills</span>
+            </div>
+            <div class="month-category-breakdown" id="month-category-breakdown">
+              <div class="monthly-report-empty">Category totals will appear when the month is calculated.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="card month-occurrence-card mt">
+        <div class="finance-card-head">
+          <div>
+            <div class="panel-kicker">Dated commitments</div>
+            <h2>Bills due this month</h2>
+          </div>
+          <span class="finance-status neutral" id="month-occurrence-status">Monthly view</span>
+        </div>
+        <div class="month-occurrence-list" id="month-bill-occurrences">
+          <div class="monthly-report-empty">This list will show the exact bill occurrences for the selected month.</div>
+        </div>
+      </section>
+
+      <div class="bill-setup-heading">
+        <div>
+          <div class="workspace-kicker">Forecast ingredients</div>
+          <h2>Bill setup</h2>
+        </div>
+        <span>Recurring rules and defaults used to build every cycle and monthly report.</span>
+      </div>
+
+      <div class="card totals bill-plan-card">
+        <div class="card-title">Typical monthly bill plan</div>
+        <p class="hint bill-plan-hint">A planning average from recurring defaults. Weekly commitments use the monthly average of 4.33 weeks.</p>
         <div class="cat-totals-grid" id="cat-totals" style="margin-bottom:1.25rem"></div>
         <dl style="border-top:1px solid var(--border);padding-top:1rem">
           <div class="totals-row">
@@ -385,18 +557,18 @@
             <dd id="total-weekly">—</dd>
           </div>
           <div class="totals-row">
-            <dt>One-time / upcoming</dt>
+            <dt>Open one-time bills</dt>
             <dd id="total-onetime">—</dd>
           </div>
           <div class="totals-row grand">
-            <dt>Total monthly outflow</dt>
+            <dt>Recurring monthly baseline</dt>
             <dd id="total-all">—</dd>
           </div>
         </dl>
       </div>
 
       <div class="card mt">
-        <div class="card-title">🧾 Bills</div>
+        <div class="card-title">Bills and recurring rules</div>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -436,7 +608,7 @@
         <section class="card schedule-timeline-card">
           <div class="finance-card-head">
             <div>
-              <div class="panel-kicker">Next 35 days</div>
+              <div class="panel-kicker">Schedule + history</div>
               <div class="card-title">Pay schedule</div>
             </div>
             <span class="finance-status neutral" id="sched-wife-line"></span>
@@ -453,9 +625,10 @@
       <div class="card">
         <div class="card-title">💾 Data</div>
         <div class="btn-row">
-          <button type="button" id="btn-export" class="btn">Export JSON</button>
-          <label class="btn ghost file-label">Import JSON<input id="input-import" type="file" accept="application/json" hidden /></label>
+          <button type="button" id="btn-export" class="btn">Export reference snapshot</button>
+          <label class="btn ghost file-label" id="legacy-import-label" aria-describedby="data-import-note">Import legacy settings JSON<input id="input-import" type="file" accept="application/json" hidden /></label>
         </div>
+        <p class="hint data-import-note" id="data-import-note">Legacy import only reads pre-ledger income defaults, balance, and adjustments. It does not restore bills, meals, shared lists, or dated financial history.</p>
       </div>
       <div class="card mt">
         <div class="card-title">Account</div>

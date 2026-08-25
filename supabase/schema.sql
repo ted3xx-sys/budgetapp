@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS settings (
   instapay_default    NUMERIC        NOT NULL DEFAULT 0,
   anchor_thursday     TEXT           NOT NULL DEFAULT '',
   balance             NUMERIC        NOT NULL DEFAULT 0,
+  reserve_floor       NUMERIC        NOT NULL DEFAULT 0 CHECK (
+    reserve_floor >= 0
+    AND reserve_floor::TEXT NOT IN ('NaN', 'Infinity', '-Infinity')
+  ),
   income_overrides    JSONB          NOT NULL DEFAULT '{}',
   paid_bills          JSONB          NOT NULL DEFAULT '{}',
   unpaid_bills        JSONB          NOT NULL DEFAULT '{}',
@@ -21,6 +25,10 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- In case the table already existed without the newer columns:
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS balance           NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS reserve_floor     NUMERIC NOT NULL DEFAULT 0 CHECK (
+  reserve_floor >= 0
+  AND reserve_floor::TEXT NOT IN ('NaN', 'Infinity', '-Infinity')
+);
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS income_overrides  JSONB   NOT NULL DEFAULT '{}';
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS paid_bills        JSONB   NOT NULL DEFAULT '{}';
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS unpaid_bills      JSONB   NOT NULL DEFAULT '{}';
@@ -31,16 +39,20 @@ ALTER TABLE settings ADD COLUMN IF NOT EXISTS cleared_income    JSONB   NOT NULL
 CREATE TABLE IF NOT EXISTS bills (
   id           TEXT    PRIMARY KEY,
   user_id      TEXT    NOT NULL,
+  household_id UUID,
   name         TEXT    NOT NULL DEFAULT '',
   amount       NUMERIC NOT NULL DEFAULT 0,
   is_recurring BOOLEAN NOT NULL DEFAULT false,
   due_day      INTEGER NOT NULL DEFAULT 1,
   due_date     TEXT,
   category     TEXT    NOT NULL DEFAULT '',
-  is_autodraft BOOLEAN NOT NULL DEFAULT false
+  is_autodraft BOOLEAN NOT NULL DEFAULT false,
+  archived_at  TIMESTAMPTZ
 );
 
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS due_date TEXT;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS household_id UUID;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 -- Recurrence cadence: 'monthly' uses due_day as day-of-month (1-31);
 --                    'weekly'  uses due_day as day-of-week  (0=Sun..6=Sat).
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS recur_kind TEXT NOT NULL DEFAULT 'monthly';
@@ -49,10 +61,51 @@ ALTER TABLE bills ADD COLUMN IF NOT EXISTS recur_kind TEXT NOT NULL DEFAULT 'mon
 CREATE TABLE IF NOT EXISTS one_time_payments (
   id           TEXT    PRIMARY KEY,
   user_id      TEXT    NOT NULL,
+  household_id UUID,
   name         TEXT    NOT NULL DEFAULT '',
   amount       NUMERIC NOT NULL DEFAULT 0,
-  payment_date DATE    NOT NULL
+  payment_date DATE    NOT NULL,
+  archived_at  TIMESTAMPTZ
 );
+
+ALTER TABLE one_time_payments ADD COLUMN IF NOT EXISTS household_id UUID;
+ALTER TABLE one_time_payments ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+-- Reject negative and PostgreSQL non-finite numeric values at the durable
+-- legacy source boundary. NOT VALID protects new writes immediately; validation
+-- then confirms the existing household rows are clean without rewriting them.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.bills'::regclass
+      AND conname = 'bills_amount_nonnegative_finite'
+  ) THEN
+    ALTER TABLE bills
+      ADD CONSTRAINT bills_amount_nonnegative_finite
+      CHECK (
+        amount >= 0
+        AND amount::TEXT NOT IN ('NaN', 'Infinity', '-Infinity')
+      ) NOT VALID;
+  END IF;
+  ALTER TABLE bills VALIDATE CONSTRAINT bills_amount_nonnegative_finite;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.one_time_payments'::regclass
+      AND conname = 'one_time_payments_amount_nonnegative_finite'
+  ) THEN
+    ALTER TABLE one_time_payments
+      ADD CONSTRAINT one_time_payments_amount_nonnegative_finite
+      CHECK (
+        amount >= 0
+        AND amount::TEXT NOT IN ('NaN', 'Infinity', '-Infinity')
+      ) NOT VALID;
+  END IF;
+  ALTER TABLE one_time_payments
+    VALIDATE CONSTRAINT one_time_payments_amount_nonnegative_finite;
+END;
+$$;
 
 -- ── meals (what's for dinner each night) ─────────────────────
 CREATE TABLE IF NOT EXISTS meals (
@@ -61,8 +114,11 @@ CREATE TABLE IF NOT EXISTS meals (
   meal_date DATE NOT NULL,
   name      TEXT NOT NULL DEFAULT '',
   notes     TEXT NOT NULL DEFAULT '',
+  deleted_at TIMESTAMPTZ,
   UNIQUE (user_id, meal_date)
 );
+
+ALTER TABLE meals ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 -- ── shared shopping / to-do lists ────────────────────────────
 CREATE TABLE IF NOT EXISTS shared_lists (
@@ -71,8 +127,11 @@ CREATE TABLE IF NOT EXISTS shared_lists (
   title      TEXT        NOT NULL DEFAULT '',
   notes      TEXT        NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  archived_at TIMESTAMPTZ
 );
+
+ALTER TABLE shared_lists ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS shared_list_items (
   id           TEXT        PRIMARY KEY,
@@ -82,12 +141,23 @@ CREATE TABLE IF NOT EXISTS shared_list_items (
   is_completed BOOLEAN     NOT NULL DEFAULT false,
   sort_order   INTEGER     NOT NULL DEFAULT 0,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at   TIMESTAMPTZ
 );
+
+ALTER TABLE shared_list_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS shared_lists_user_id_idx ON shared_lists(user_id);
 CREATE INDEX IF NOT EXISTS shared_list_items_user_id_idx ON shared_list_items(user_id);
 CREATE INDEX IF NOT EXISTS shared_list_items_list_id_idx ON shared_list_items(list_id);
+CREATE INDEX IF NOT EXISTS one_time_payments_household_active_date_idx
+  ON one_time_payments(household_id, payment_date) WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS meals_user_active_date_idx
+  ON meals(user_id, meal_date) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS shared_lists_user_active_updated_idx
+  ON shared_lists(user_id, updated_at DESC) WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS shared_list_items_list_active_sort_idx
+  ON shared_list_items(list_id, sort_order) WHERE deleted_at IS NULL;
 
 -- ── Row Level Security ───────────────────────────────────────
 ALTER TABLE settings          ENABLE ROW LEVEL SECURITY;
@@ -177,7 +247,7 @@ CREATE POLICY "household_shared_list_items" ON shared_list_items
 
 -- Explicit API privileges. RLS still limits rows to the household allowlist.
 REVOKE ALL ON TABLE settings, bills, meals, one_time_payments, shared_lists, shared_list_items FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE settings, bills, meals, one_time_payments, shared_lists, shared_list_items TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE settings, bills, meals, one_time_payments, shared_lists, shared_list_items TO authenticated;
 
 -- The former events/shared_tasks tables and old misc/grocery/fuel settings
 -- columns are not used by GHP anymore. This script intentionally does not

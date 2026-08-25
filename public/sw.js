@@ -1,5 +1,5 @@
 // Bump this when shipping new assets so old caches (icons, html, etc.) are evicted.
-const CACHE = 'ghp-v8';
+const CACHE = 'ghp-v9';
 
 self.addEventListener('install', e => {
   e.waitUntil(
