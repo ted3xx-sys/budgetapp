@@ -228,13 +228,14 @@ export function billScheduleGuardIdentities({
   const usedProtected = new Set();
   const usedCandidates = new Set();
 
-  // Preserve an exact settled/manual-skip row before considering logical periods.
+  // An exact protected row already occupies the candidate's unique database
+  // identity, so materialization cannot create a second row to suppress. Mark
+  // both sides consumed without guarding the row against itself.
   protectedRows.forEach((protectedRow, protectedIndex) => {
     const candidate = availableCandidates.find(item =>
       !usedCandidates.has(item.key) && item.key === protectedRow.key,
     );
     if (!candidate) return;
-    guarded.add(candidate.key);
     usedCandidates.add(candidate.key);
     usedProtected.add(protectedIndex);
   });

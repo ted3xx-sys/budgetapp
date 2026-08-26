@@ -409,6 +409,32 @@ test('Automatically superseded guards do not suppress schedules across repeated 
   }), []);
 });
 
+test('An adjusted one-time occurrence never guards its own exact database row', () => {
+  const existing = plannedBill('once-existing', '2026-08-28', 700, {
+    sourceKind: 'one_time_bill', sourceId: 'discover', adjusted: true,
+  });
+  const exactCandidate = plannedBill('once-candidate', '2026-08-28', 700, {
+    sourceKind: 'one_time_bill', sourceId: 'discover',
+  });
+
+  assert.deepEqual(billScheduleGuardIdentities({
+    candidates: [exactCandidate],
+    existingOccurrences: [existing],
+    cadence: 'monthly',
+    targetSourceKind: 'one_time_bill',
+    sourceId: 'discover',
+  }), []);
+
+  const movedCandidate = { ...exactCandidate, date: '2026-08-29' };
+  assert.deepEqual(billScheduleGuardIdentities({
+    candidates: [movedCandidate],
+    existingOccurrences: [existing],
+    cadence: 'monthly',
+    targetSourceKind: 'one_time_bill',
+    sourceId: 'discover',
+  }), ['one_time_bill|2026-08-29']);
+});
+
 test('Recurring and one-time conversions preserve only the represented logical occurrence', () => {
   const oneTimeCandidate = [
     plannedBill('once', '2026-08-28', 100, { sourceKind: 'one_time_bill', sourceId: 'rent' }),
