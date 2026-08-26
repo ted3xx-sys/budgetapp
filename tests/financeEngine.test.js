@@ -12,6 +12,7 @@ import {
   isoDateInTimeZone,
   materializeSchedule,
   nextCycleHeadsUp,
+  oneTimeSourceOccurrences,
   paydayCycleFor,
   summarizeCalendarMonth,
 } from '../src/financeEngine.js';
@@ -213,6 +214,37 @@ test('Monthly day 31 clamps correctly across leap and non-leap February', () => 
   const nonLeap = materializeSchedule(template, '2027-02-01', '2027-03-01');
   assert.deepEqual(leap.map((item) => item.date), ['2028-01-31', '2028-02-29', '2028-03-31']);
   assert.deepEqual(nonLeap.map((item) => item.date), ['2027-02-28']);
+});
+
+test('One-time source repair includes overdue rows and ignores recurring or invalid sources', () => {
+  const occurrences = oneTimeSourceOccurrences({
+    bills: [
+      { id: 'overdue-bill', name: 'Past bill', amount: 45, dueDate: '2026-07-01', recurring: false, category: 'extra' },
+      { id: 'recurring', name: 'Monthly', amount: 100, dueDate: '2026-07-01', recurring: true },
+      { id: 'invalid-date', name: 'Broken', amount: 10, dueDate: '2026-02-30', recurring: false },
+    ],
+    payments: [
+      { id: 'overdue-payment', name: 'Past payment', amount: 75, paymentDate: '2026-07-02' },
+      { id: 'missing-date', name: 'No date', amount: 20, paymentDate: '' },
+    ],
+  });
+
+  assert.deepEqual(occurrences.map(item => ({
+    type: item.type,
+    sourceKind: item.sourceKind,
+    sourceId: item.sourceId,
+    date: item.date,
+    amount: item.amount,
+  })), [
+    {
+      type: 'bill', sourceKind: 'one_time_bill', sourceId: 'overdue-bill',
+      date: '2026-07-01', amount: 45,
+    },
+    {
+      type: 'income', sourceKind: 'one_time_income', sourceId: 'overdue-payment',
+      date: '2026-07-02', amount: 75,
+    },
+  ]);
 });
 
 test('Calendar month ranges are exact and exclude the first day of the next month', () => {

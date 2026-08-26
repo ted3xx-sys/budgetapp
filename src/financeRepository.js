@@ -171,6 +171,69 @@ export async function saveOccurrence(supabase, householdId, occurrence) {
   return occurrenceFromRow(data);
 }
 
+export async function saveOneTimeBill(supabase, {
+  householdId,
+  userId,
+  bill,
+}) {
+  const { data, error } = await supabase.rpc('save_one_time_bill', {
+    p_id: bill.id,
+    p_user_id: userId,
+    p_household_id: householdId,
+    p_name: bill.name,
+    p_amount: numberOrZero(bill.amount),
+    p_due_date: bill.dueDate,
+    p_category: bill.category || '',
+    p_is_autodraft: !!bill.autodraft,
+  });
+  throwIfError(error);
+  return occurrenceFromRow(data);
+}
+
+export async function saveOneTimePayment(supabase, {
+  householdId,
+  userId,
+  payment,
+}) {
+  const { data, error } = await supabase.rpc('save_one_time_payment', {
+    p_id: payment.id,
+    p_user_id: userId,
+    p_household_id: householdId,
+    p_name: payment.name,
+    p_amount: numberOrZero(payment.amount),
+    p_payment_date: payment.paymentDate,
+  });
+  throwIfError(error);
+  return occurrenceFromRow(data);
+}
+
+export async function updateOneTimeOccurrence(supabase, occurrenceId, {
+  label,
+  amount,
+  date,
+  category = '',
+  autodraft = false,
+}) {
+  const { data, error } = await supabase.rpc('update_one_time_occurrence', {
+    p_occurrence_id: occurrenceId,
+    p_name: label,
+    p_amount: numberOrZero(amount),
+    p_date: date,
+    p_category: category || '',
+    p_is_autodraft: !!autodraft,
+  });
+  throwIfError(error);
+  return occurrenceFromRow(data);
+}
+
+export async function removeOneTimeOccurrence(supabase, occurrenceId) {
+  const { data, error } = await supabase.rpc('remove_one_time_occurrence', {
+    p_occurrence_id: occurrenceId,
+  });
+  throwIfError(error);
+  return data;
+}
+
 export async function patchOccurrence(supabase, id, changes) {
   const patch = {};
   if ('date' in changes) patch.scheduled_on = changes.date;
@@ -192,14 +255,6 @@ export async function patchOccurrence(supabase, id, changes) {
     .single();
   throwIfError(error);
   return occurrenceFromRow(data);
-}
-
-export async function deleteOccurrence(supabase, id) {
-  const { error } = await supabase
-    .from('cashflow_occurrences')
-    .delete()
-    .eq('id', id);
-  throwIfError(error);
 }
 
 export async function updateFutureSourceAmounts(supabase, {

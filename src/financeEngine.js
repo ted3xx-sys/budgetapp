@@ -390,6 +390,60 @@ export function materializeSchedule(template, startDate, endDateExclusive) {
   });
 }
 
+/**
+ * Materialize the durable occurrence represented by every active one-time
+ * source. These rows are intentionally not range-limited: an overdue source
+ * with a missing occurrence must be repaired instead of disappearing forever.
+ */
+export function oneTimeSourceOccurrences({ bills = [], payments = [] } = {}) {
+  const validDate = value => {
+    try {
+      dayNumber(value, 'one-time source date');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const validId = value => value != null && String(value).trim() !== '';
+  const occurrences = [];
+
+  bills.forEach(bill => {
+    if (bill.recurring || !validId(bill.id) || !validDate(bill.dueDate)) return;
+    occurrences.push({
+      type: 'bill',
+      sourceKind: 'one_time_bill',
+      sourceId: bill.id,
+      date: bill.dueDate,
+      label: bill.name || 'One-time bill',
+      category: bill.category || '',
+      amount: Number(bill.amount) || 0,
+      status: 'planned',
+      inferred: false,
+      adjusted: false,
+      autodraft: !!bill.autodraft,
+    });
+  });
+
+  payments.forEach(payment => {
+    if (!validId(payment.id) || !validDate(payment.paymentDate)) return;
+    occurrences.push({
+      type: 'income',
+      sourceKind: 'one_time_income',
+      sourceId: payment.id,
+      date: payment.paymentDate,
+      label: payment.name || 'One-time payment',
+      category: '',
+      amount: Number(payment.amount) || 0,
+      status: 'planned',
+      inferred: false,
+      adjusted: false,
+      autodraft: false,
+    });
+  });
+
+  return occurrences;
+}
+
 function projectionEvents({ occurrences, startDay, endDay, includeOverdueBills }) {
   const events = [];
   occurrences.forEach((occurrence, originalIndex) => {
